@@ -19,7 +19,7 @@ export default function Home({
                         <div className="flex justify-between h-16">
                             <div className="flex">
                                 <div className="shrink-0 flex items-center">
-                                    <img src="/images/logo.png" alt="BikeShop Logo" className="h-10 w-auto" />
+                                    <img src="src/images/jcbikes transparente.png" alt="BikeShop Logo" className="h-10 w-auto" />
                                     <span className="ml-3 font-bold text-xl text-gray-800 dark:text-white">JC BIKES</span>
                                 </div>
                             </div>

@@ -1,7 +1,24 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 export default function Shop() {
+    const [products, setProducts] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        // Conectar con el endpoint de Express
+        fetch('http://localhost:5000/api/products')
+            .then(res => res.json())
+            .then(data => {
+                setProducts(data);
+                setLoading(false);
+            })
+            .catch(err => {
+                console.error("Error al cargar los productos:", err);
+                setLoading(false);
+            });
+    }, []);
+
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
             {/* Header / Navigation (Simplified for Shop) */}
@@ -66,27 +83,33 @@ export default function Shop() {
                         </div>
 
                         {/* Grid Skeleton */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {[1, 2, 3, 4, 5, 6].map((item) => (
-                                <div key={item} className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden flex flex-col">
-                                    <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-                                        <span className="text-gray-400 dark:text-gray-500">Imagen del producto</span>
-                                    </div>
-                                    <div className="p-4 flex-1 flex flex-col">
-                                        <h3 className="text-lg font-medium text-gray-900 dark:text-white">Producto Ejemplo {item}</h3>
-                                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 flex-1">
-                                            Breve descripción del producto o características principales.
-                                        </p>
-                                        <div className="mt-4 flex items-center justify-between">
-                                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400">$99.99</span>
-                                            <button className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">
-                                                Añadir
-                                            </button>
+                        {loading ? (
+                            <p className="text-gray-500 dark:text-gray-400">Cargando productos...</p>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {products.length > 0 ? products.map((product) => (
+                                    <div key={product.id || product} className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden flex flex-col">
+                                        <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                                            <span className="text-gray-400 dark:text-gray-500">Imagen del producto</span>
+                                        </div>
+                                        <div className="p-4 flex-1 flex flex-col">
+                                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{product.name || `Producto Ejemplo ${product}`}</h3>
+                                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 flex-1">
+                                                Breve descripción del producto o características principales.
+                                            </p>
+                                            <div className="mt-4 flex items-center justify-between">
+                                                <span className="text-lg font-bold text-blue-600 dark:text-blue-400">${product.price || '99.99'}</span>
+                                                <button className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">
+                                                    Añadir
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
+                                )) : (
+                                    <p className="text-gray-500 dark:text-gray-400">No hay productos disponibles.</p>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </main>
