@@ -1,23 +1,51 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import api from '../utils/api';
 
 export default function Shop() {
     const [products, setProducts] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeCategoryId = searchParams.get('category');
 
     useEffect(() => {
-        // Conectar con el endpoint de Express
-        fetch('http://localhost:5000/api/products')
-            .then(res => res.json())
-            .then(data => {
-                setProducts(data);
-                setLoading(false);
-            })
-            .catch(err => {
-                console.error("Error al cargar los productos:", err);
-                setLoading(false);
-            });
+        // Cargar categorías
+        api.get('/categories')
+            .then(res => setCategories(res.data))
+            .catch(err => console.error("Error al cargar categorías:", err));
     }, []);
+
+    useEffect(() => {
+        let active = true;
+
+        const loadProducts = async () => {
+            // Evitar setState síncrono en cuerpo del efecto
+            await Promise.resolve();
+            if (!active) return;
+
+            setLoading(true);
+            try {
+                const url = activeCategoryId ? `/products?category=${activeCategoryId}` : '/products';
+                const res = await api.get(url);
+                if (active) {
+                    setProducts(res.data);
+                }
+            } catch (err) {
+                console.error("Error al cargar productos:", err);
+            } finally {
+                if (active) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadProducts();
+
+        return () => {
+            active = false;
+        };
+    }, [activeCategoryId]);
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -45,28 +73,33 @@ export default function Shop() {
                     
                     {/* Sidebar / Filters */}
                     <aside className="w-full md:w-64 shrink-0">
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Filtros</h2>
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-100 dark:border-gray-700">
+                            <h2 className="text-lg font-bold text-blue-900 dark:text-white border-b border-gray-150 pb-2 mb-4">CATEGORÍAS</h2>
                             
-                            {/* Filter Categories Dummy */}
-                            <div className="space-y-4">
-                                <div>
-                                    <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Categorías</h3>
-                                    <ul className="space-y-2">
-                                        <li className="flex items-center">
-                                            <input type="checkbox" className="rounded text-blue-600 focus:ring-blue-500" />
-                                            <span className="ml-2 text-gray-600 dark:text-gray-400">Bicicletas</span>
-                                        </li>
-                                        <li className="flex items-center">
-                                            <input type="checkbox" className="rounded text-blue-600 focus:ring-blue-500" />
-                                            <span className="ml-2 text-gray-600 dark:text-gray-400">Accesorios</span>
-                                        </li>
-                                        <li className="flex items-center">
-                                            <input type="checkbox" className="rounded text-blue-600 focus:ring-blue-500" />
-                                            <span className="ml-2 text-gray-600 dark:text-gray-400">Repuestos</span>
-                                        </li>
-                                    </ul>
-                                </div>
+                            <div className="space-y-1">
+                                <button
+                                    onClick={() => setSearchParams({})}
+                                    className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                                        !activeCategoryId 
+                                            ? 'bg-blue-900 text-white shadow-sm' 
+                                            : 'text-gray-600 hover:text-orange-500 dark:text-gray-300 dark:hover:text-orange-400'
+                                    }`}
+                                >
+                                    Ver Todo
+                                </button>
+                                {categories.map((cat) => (
+                                    <button
+                                        key={cat.id}
+                                        onClick={() => setSearchParams({ category: cat.id })}
+                                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                                            activeCategoryId === String(cat.id)
+                                                ? 'bg-blue-900 text-white shadow-sm' 
+                                                : 'text-gray-600 hover:text-orange-500 dark:text-gray-300 dark:hover:text-orange-400'
+                                        }`}
+                                    >
+                                        {cat.name}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     </aside>

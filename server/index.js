@@ -109,18 +109,161 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Rutas
-app.get('/api/products', async (req, res) => {
+// Middleware para verificar JWT
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Formato: "Bearer TOKEN"
+
+    if (!token) {
+        return res.status(401).json({ error: "Acceso denegado. Token no proporcionado." });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET || 'super_secreto_desarrollo', (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: "Token inválido o expirado." });
+        }
+        req.user = user;
+        next();
+    });
+};
+
+// Middleware para verificar si el usuario es Administrador
+const isAdmin = (req, res, next) => {
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: "Acceso restringido. Solo administradores." });
+    }
+};
+
+// ==========================================
+// RUTAS DE LA ENTIDAD CATEGORÍAS
+// ==========================================
+
+// 1. GET /api/categories (Público) - Obtener todas las categorías
+app.get('/api/categories', async (req, res) => {
     try {
-        // Cuando crees tu tabla "products" en DBeaver, descomenta estas dos líneas:
-        // const allProducts = await pool.query('SELECT * FROM products');
-        // res.json(allProducts.rows);
-        
-        // Datos de prueba para probar la conexión con el frontend rápidamente:
-        res.json([{ id: 1, name: 'Bicicleta de Montaña', price: 499.99 }, { id: 2, name: 'Casco Profesional', price: 59.99 }]);
+        const result = await pool.query('SELECT * FROM categories ORDER BY id ASC');
+        res.json(result.rows);
     } catch (err) {
         console.error(err.message);
-        res.status(500).send('Error en el servidor');
+        res.status(500).send('Error en el servidor al obtener categorías');
+    }
+});
+
+// 2. POST /api/categories (Protegido - Admin) - Crear una nueva categoría
+app.post('/api/categories', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name || name.trim() === '') {
+            return res.status(400).json({ error: "El nombre de la categoría es obligatorio." });
+        }
+
+        const result = await pool.query(
+            'INSERT INTO categories (name) VALUES ($1) RETURNING *',
+            [name.trim()]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') { // Código de error de clave única duplicada en Postgres
+            return res.status(400).json({ error: "La categoría ya existe." });
+        }
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al crear categoría');
+    }
+});
+
+// 3. PUT /api/categories/:id (Protegido - Admin) - Editar una categoría
+app.put('/api/categories/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name || name.trim() === '') {
+            return res.status(400).json({ error: "El nombre de la categoría es obligatorio." });
+        }
+
+        const result = await pool.query(
+            'UPDATE categories SET name = $1 WHERE id = $2 RETURNING *',
+            [name.trim(), id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Categoría no encontrada." });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') {
+            return res.status(400).json({ error: "El nombre de la categoría ya está en uso." });
+        }
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al editar categoría');
+    }
+});
+
+// 4. DELETE /api/categories/:id (Protegido - Admin) - Eliminar una categoría
+app.delete('/api/categories/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query('DELETE FROM categories WHERE id = $1 RETURNING *', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Categoría no encontrada." });
+        }
+
+        res.json({ message: "Categoría eliminada con éxito", category: result.rows[0] });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al eliminar categoría');
+    }
+});
+
+// ==========================================
+// RUTAS DE LA ENTIDAD PRODUCTOS
+// ==========================================
+
+// GET /api/products - Obtener productos (con opción de filtrar por categoría)
+app.get('/api/products', async (req, res) => {
+    try {
+        const { category } = req.query;
+        let query = 'SELECT * FROM products';
+        const params = [];
+
+        if (category) {
+            query += ' WHERE category_id = $1';
+            params.push(category);
+        }
+
+        query += ' ORDER BY id ASC';
+        const allProducts = await pool.query(query, params);
+
+        // Si la base de datos de productos está vacía, sembramos productos iniciales dinámicamente
+        if (allProducts.rows.length === 0 && !category) {
+            const cats = await pool.query('SELECT * FROM categories');
+            if (cats.rows.length > 0) {
+                const biciCat = cats.rows.find(c => c.name === 'Bicicletas')?.id || cats.rows[0].id;
+                const compCat = cats.rows.find(c => c.name === 'Componentes')?.id || cats.rows[0].id;
+                const equipCat = cats.rows.find(c => c.name === 'Equipamiento')?.id || cats.rows[0].id;
+
+                await pool.query(
+                    'INSERT INTO products (name, price, category_id) VALUES ($1, $2, $3), ($4, $5, $6), ($7, $8, $9)',
+                    [
+                        'Bicicleta de Ruta Trek Emonda', 2499.99, biciCat,
+                        'Transmisión Shimano Dura-Ace', 350.00, compCat,
+                        'Casco Aero Specialized Evade', 120.00, equipCat
+                    ]
+                );
+
+                const newProducts = await pool.query('SELECT * FROM products ORDER BY id ASC');
+                return res.json(newProducts.rows);
+            }
+        }
+
+        res.json(allProducts.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al obtener productos');
     }
 });
 
