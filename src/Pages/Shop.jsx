@@ -1,12 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import api from '../utils/api';
 
 export default function Shop() {
     const [products, setProducts] = useState([]);
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState('');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeCategoryId = searchParams.get('category');
+
+    useEffect(() => {
+        // Cargar categorías
+        api.get('/categories')
+            .then(res => setCategories(res.data))
+            .catch(err => console.error("Error al cargar categorías:", err));
+    }, []);
 
     // Cargar las categorías al inicio
     useEffect(() => {
@@ -18,23 +26,35 @@ export default function Shop() {
 
     // Cargar productos cada vez que cambien los filtros o la búsqueda
     useEffect(() => {
-        setLoading(true);
-        
-        const queryParams = new URLSearchParams();
-        if (search) queryParams.append('search', search);
-        if (selectedCategory) queryParams.append('category_id', selectedCategory);
+        let active = true;
 
-        fetch(`http://localhost:5000/api/products?${queryParams.toString()}`)
-            .then(res => res.json())
-            .then(data => {
-                setProducts(data);
-                setLoading(false);
-            })
-            .catch(err => {
-                console.error("Error al cargar los productos:", err);
-                setLoading(false);
-            });
-    }, [search, selectedCategory]);
+        const loadProducts = async () => {
+            // Evitar setState síncrono en cuerpo del efecto
+            await Promise.resolve();
+            if (!active) return;
+
+            setLoading(true);
+            try {
+                const url = activeCategoryId ? `/products?category=${activeCategoryId}` : '/products';
+                const res = await api.get(url);
+                if (active) {
+                    setProducts(res.data);
+                }
+            } catch (err) {
+                console.error("Error al cargar productos:", err);
+            } finally {
+                if (active) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadProducts();
+
+        return () => {
+            active = false;
+        };
+    }, [activeCategoryId]);
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -62,46 +82,33 @@ export default function Shop() {
                     
                     {/* Sidebar / Filters */}
                     <aside className="w-full md:w-64 shrink-0">
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Filtros</h2>
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-100 dark:border-gray-700">
+                            <h2 className="text-lg font-bold text-blue-900 dark:text-white border-b border-gray-150 pb-2 mb-4">CATEGORÍAS</h2>
                             
-                            {/* Motor de Búsqueda */}
-                            <div className="mb-6">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Buscador</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="Buscar por nombre..." 
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    className="w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                />
-                            </div>
-
-                            {/* Filtro de Categorías Reales */}
-                            <div className="space-y-4">
-                                <div>
-                                    <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Categorías</h3>
-                                    <ul className="space-y-2">
-                                        <li className="flex items-center">
-                                            <input 
-                                                type="radio" name="category" checked={selectedCategory === ''} 
-                                                onChange={() => setSelectedCategory('')} 
-                                                className="text-blue-600 focus:ring-blue-500" 
-                                            />
-                                            <span className="ml-2 text-gray-600 dark:text-gray-400">Todas</span>
-                                        </li>
-                                        {categories.map(cat => (
-                                            <li key={cat.id} className="flex items-center">
-                                                <input 
-                                                    type="radio" name="category" checked={selectedCategory === cat.id.toString()}
-                                                    onChange={() => setSelectedCategory(cat.id.toString())} 
-                                                    className="text-blue-600 focus:ring-blue-500" 
-                                                />
-                                                <span className="ml-2 text-gray-600 dark:text-gray-400">{cat.name}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
+                            <div className="space-y-1">
+                                <button
+                                    onClick={() => setSearchParams({})}
+                                    className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                                        !activeCategoryId 
+                                            ? 'bg-blue-900 text-white shadow-sm' 
+                                            : 'text-gray-600 hover:text-orange-500 dark:text-gray-300 dark:hover:text-orange-400'
+                                    }`}
+                                >
+                                    Ver Todo
+                                </button>
+                                {categories.map((cat) => (
+                                    <button
+                                        key={cat.id}
+                                        onClick={() => setSearchParams({ category: cat.id })}
+                                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                                            activeCategoryId === String(cat.id)
+                                                ? 'bg-blue-900 text-white shadow-sm' 
+                                                : 'text-gray-600 hover:text-orange-500 dark:text-gray-300 dark:hover:text-orange-400'
+                                        }`}
+                                    >
+                                        {cat.name}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     </aside>
@@ -124,7 +131,7 @@ export default function Shop() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                                 {products.length > 0 ? products.map((product) => (
                                     <div key={product.id} className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden flex flex-col">
-                                        
+
                                         {/* Galería (Imagen) */}
                                         <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
                                             {product.image_url ? (
@@ -136,7 +143,7 @@ export default function Shop() {
 
                                         <div className="p-4 flex-1 flex flex-col">
                                             <h3 className="text-lg font-medium text-gray-900 dark:text-white line-clamp-1" title={product.name}>{product.name}</h3>
-                                            
+
                                             {/* Sistema de Reseñas y Categoría */}
                                             <div className="flex items-center mt-1 mb-2">
                                                 <span className="text-xs text-blue-600 dark:text-blue-400 font-medium bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 rounded mr-2">

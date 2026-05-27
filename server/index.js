@@ -109,131 +109,161 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Rutas
-// 4. Endpoint "Mágico" para crear las tablas de la tienda y cargar datos de prueba
-app.get('/api/setup-store', async (req, res) => {
-    try {
-        // Creación de las tablas relacionales
-        await pool.query(`
-             DROP TABLE IF EXISTS reviews, product_variants, products, categories CASCADE;
-             CREATE TABLE IF NOT EXISTS categories (
-                 id SERIAL PRIMARY KEY,
-                 name VARCHAR(100) UNIQUE NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS products (
-                 id SERIAL PRIMARY KEY,
-                 category_id INTEGER REFERENCES categories(id),
-                 name VARCHAR(255) UNIQUE NOT NULL,
-                 description TEXT,
-                 price NUMERIC(10, 2) NOT NULL,
-                 image_url TEXT,
-                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-             );
-             CREATE TABLE IF NOT EXISTS product_variants (
-                 id SERIAL PRIMARY KEY,
-                 product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
-                 color VARCHAR(50),
-                 size VARCHAR(50),
-                 stock INTEGER DEFAULT 0
-             );
-             CREATE TABLE IF NOT EXISTS reviews (
-                 id SERIAL PRIMARY KEY,
-                 product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
-                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                 rating INTEGER CHECK (rating >= 1 AND rating <= 5),
-                 comment TEXT,
-                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-             );
-         `);
+// Middleware para verificar JWT
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Formato: "Bearer TOKEN"
 
-        // Inserción de Categorías
-        await pool.query(`INSERT INTO categories (name) VALUES ('Bicicletas'), ('Accesorios'), ('Repuestos') ON CONFLICT (name) DO NOTHING;`);
-
-        // Inserción de Productos
-        await pool.query(`
-             INSERT INTO products (category_id, name, description, price, image_url) VALUES 
-             ((SELECT id FROM categories WHERE name = 'Bicicletas' LIMIT 1), 'Bicicleta de Montaña Pro', 'Chasis de aluminio ligero, frenos de disco hidráulicos y suspensión avanzada.', 599.99, 'https://images.unsplash.com/photo-1532298229144-0ec0c57515c7?w=600&q=80'),
-             ((SELECT id FROM categories WHERE name = 'Accesorios' LIMIT 1), 'Casco Aerodinámico', 'Máxima protección y velocidad con diseño ergonómico y ventilado.', 89.50, 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&q=80'),
-             ((SELECT id FROM categories WHERE name = 'Repuestos' LIMIT 1), 'Cadena Shimano 11v', 'Alta durabilidad y rendimiento para las subidas más exigentes.', 25.00, 'https://images.unsplash.com/photo-1558235282-50dce421d014?w=600&q=80')
-             ON CONFLICT (name) DO NOTHING;
-         `);
-
-        // Limpieza rápida y carga de variantes y reseñas (para evitar duplicados infinitos al recargar)
-        await pool.query(`DELETE FROM product_variants; DELETE FROM reviews;`);
-
-        await pool.query(`
-             INSERT INTO product_variants (product_id, color, size, stock) VALUES 
-             ((SELECT id FROM products WHERE name = 'Bicicleta de Montaña Pro' LIMIT 1), 'Rojo', 'M', 5), 
-             ((SELECT id FROM products WHERE name = 'Bicicleta de Montaña Pro' LIMIT 1), 'Rojo', 'L', 3), 
-             ((SELECT id FROM products WHERE name = 'Bicicleta de Montaña Pro' LIMIT 1), 'Negro', 'M', 2),
-             ((SELECT id FROM products WHERE name = 'Casco Aerodinámico' LIMIT 1), 'Blanco', 'Única', 10);
-             
-             INSERT INTO reviews (product_id, user_id, rating, comment) VALUES 
-             ((SELECT id FROM products WHERE name = 'Bicicleta de Montaña Pro' LIMIT 1), (SELECT id FROM users LIMIT 1), 5, '¡Excelente bicicleta!'),
-             ((SELECT id FROM products WHERE name = 'Bicicleta de Montaña Pro' LIMIT 1), (SELECT id FROM users LIMIT 1), 4, 'Muy buena pero algo pesada.'),
-             ((SELECT id FROM products WHERE name = 'Casco Aerodinámico' LIMIT 1), (SELECT id FROM users LIMIT 1), 5, 'Muy seguro y cómodo.');
-         `);
-
-        res.send("✅ Tablas de tienda y productos de prueba creados exitosamente en PostgreSQL.");
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Error configurando la tienda: ' + err.message);
+    if (!token) {
+        return res.status(401).json({ error: "Acceso denegado. Token no proporcionado." });
     }
-});
 
-// 5. Obtener Categorías
+    jwt.verify(token, process.env.JWT_SECRET || 'super_secreto_desarrollo', (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: "Token inválido o expirado." });
+        }
+        req.user = user;
+        next();
+    });
+};
+
+// Middleware para verificar si el usuario es Administrador
+const isAdmin = (req, res, next) => {
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: "Acceso restringido. Solo administradores." });
+    }
+};
+
+// ==========================================
+// RUTAS DE LA ENTIDAD CATEGORÍAS
+// ==========================================
+
+// 1. GET /api/categories (Público) - Obtener todas las categorías
 app.get('/api/categories', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM categories ORDER BY name');
+        const result = await pool.query('SELECT * FROM categories ORDER BY id ASC');
         res.json(result.rows);
     } catch (err) {
-        res.status(500).send('Error en el servidor');
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al obtener categorías');
     }
 });
 
-// 6. Obtener Productos (con buscador, filtros, variantes y agregación de reseñas)
+// 2. POST /api/categories (Protegido - Admin) - Crear una nueva categoría
+app.post('/api/categories', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name || name.trim() === '') {
+            return res.status(400).json({ error: "El nombre de la categoría es obligatorio." });
+        }
+
+        const result = await pool.query(
+            'INSERT INTO categories (name) VALUES ($1) RETURNING *',
+            [name.trim()]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') { // Código de error de clave única duplicada en Postgres
+            return res.status(400).json({ error: "La categoría ya existe." });
+        }
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al crear categoría');
+    }
+});
+
+// 3. PUT /api/categories/:id (Protegido - Admin) - Editar una categoría
+app.put('/api/categories/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name || name.trim() === '') {
+            return res.status(400).json({ error: "El nombre de la categoría es obligatorio." });
+        }
+
+        const result = await pool.query(
+            'UPDATE categories SET name = $1 WHERE id = $2 RETURNING *',
+            [name.trim(), id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Categoría no encontrada." });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') {
+            return res.status(400).json({ error: "El nombre de la categoría ya está en uso." });
+        }
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al editar categoría');
+    }
+});
+
+// 4. DELETE /api/categories/:id (Protegido - Admin) - Eliminar una categoría
+app.delete('/api/categories/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query('DELETE FROM categories WHERE id = $1 RETURNING *', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Categoría no encontrada." });
+        }
+
+        res.json({ message: "Categoría eliminada con éxito", category: result.rows[0] });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Error en el servidor al eliminar categoría');
+    }
+});
+
+// ==========================================
+// RUTAS DE LA ENTIDAD PRODUCTOS
+// ==========================================
+
+// GET /api/products - Obtener productos (con opción de filtrar por categoría)
 app.get('/api/products', async (req, res) => {
     try {
-        const { search, category_id } = req.query;
+        const { category } = req.query;
+        let query = 'SELECT * FROM products';
+        const params = [];
 
-        let query = `
-             SELECT p.*,
-                    c.name as category_name,
-                    (SELECT COALESCE(AVG(rating), 0) FROM reviews WHERE product_id = p.id) as average_rating,
-                    (SELECT COUNT(id) FROM reviews WHERE product_id = p.id) as review_count,
-                    (
-                        SELECT json_agg(json_build_object('color', pv.color, 'size', pv.size, 'stock', pv.stock)) 
-                        FROM product_variants pv WHERE pv.product_id = p.id
-                    ) as variants
-             FROM products p
-             LEFT JOIN categories c ON p.category_id = c.id
-             WHERE 1=1
-         `;
-
-        const queryParams = [];
-        let paramIndex = 1;
-
-        // Motor de búsqueda por nombre
-        if (search) {
-            query += ` AND p.name ILIKE $${paramIndex}`;
-            queryParams.push(`%${search}%`);
-            paramIndex++;
+        if (category) {
+            query += ' WHERE category_id = $1';
+            params.push(category);
         }
 
-        // Filtro por categoría
-        if (category_id) {
-            query += ` AND p.category_id = $${paramIndex}`;
-            queryParams.push(category_id);
-            paramIndex++;
+        query += ' ORDER BY id ASC';
+        const allProducts = await pool.query(query, params);
+
+        // Si la base de datos de productos está vacía, sembramos productos iniciales dinámicamente
+        if (allProducts.rows.length === 0 && !category) {
+            const cats = await pool.query('SELECT * FROM categories');
+            if (cats.rows.length > 0) {
+                const biciCat = cats.rows.find(c => c.name === 'Bicicletas')?.id || cats.rows[0].id;
+                const compCat = cats.rows.find(c => c.name === 'Componentes')?.id || cats.rows[0].id;
+                const equipCat = cats.rows.find(c => c.name === 'Equipamiento')?.id || cats.rows[0].id;
+
+                await pool.query(
+                    'INSERT INTO products (name, price, category_id) VALUES ($1, $2, $3), ($4, $5, $6), ($7, $8, $9)',
+                    [
+                        'Bicicleta de Ruta Trek Emonda', 2499.99, biciCat,
+                        'Transmisión Shimano Dura-Ace', 350.00, compCat,
+                        'Casco Aero Specialized Evade', 120.00, equipCat
+                    ]
+                );
+
+                const newProducts = await pool.query('SELECT * FROM products ORDER BY id ASC');
+                return res.json(newProducts.rows);
+            }
         }
 
-        query += ` ORDER BY p.id DESC`;
-
-        const allProducts = await pool.query(query, queryParams);
         res.json(allProducts.rows);
     } catch (err) {
         console.error(err.message);
-        res.status(500).send('Error en el servidor');
+        res.status(500).send('Error en el servidor al obtener productos');
     }
 });
 

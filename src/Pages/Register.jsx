@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 export default function Register() {
@@ -34,6 +34,7 @@ export default function Register() {
             navigate('/shop');
 
         } catch (err) {
+            console.error("Error en registro:", err);
             setError('Error de conexión con el servidor.');
         }
     };

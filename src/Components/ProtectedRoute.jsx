@@ -1,4 +1,3 @@
-import React from 'react';
 import { Navigate } from 'react-router-dom';
 
 export default function ProtectedRoute({ children, allowedRole }) {
@@ -9,7 +8,7 @@ export default function ProtectedRoute({ children, allowedRole }) {
     try {
         if (userString) user = JSON.parse(userString);
     } catch (e) {
-        console.error("Error leyendo datos del usuario");
+        console.error("Error leyendo datos del usuario", e);
     }
 
     // Si no hay token, enviar al Login
