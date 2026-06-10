@@ -293,6 +293,84 @@ app.delete(
     }
   },
 );
+// ==========================================
+// RUTAS DE PRODUCTOS - VERSIÓN CON PAGINACIÓN
+// ==========================================
+
+// GET /api/products/paginated - Obtener productos con paginación (NUEVO ENDPOINT)
+app.get("/api/products/paginated", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 12;
+    const offset = (page - 1) * limit;
+
+    // Obtener total de productos
+    const countResult = await pool.query(
+      "SELECT COUNT(*) as total FROM products",
+    );
+    const total = parseInt(countResult.rows[0].total);
+
+    // Obtener productos paginados
+    const result = await pool.query(
+      "SELECT id, name, description, price, stock, created_at FROM products ORDER BY id ASC LIMIT $1 OFFSET $2",
+      [limit, offset],
+    );
+
+    res.json({
+      products: result.rows,
+      total: total,
+      page: page,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    console.error("Error en GET /api/products/paginated:", err.message);
+    res.status(500).json({ error: "Error al obtener productos" });
+  }
+});
+
+// GET /api/products/:id - Obtener un producto por ID (si no existe, agregar)
+// Primero verifica si ya existe esta ruta, si no existe, la agregas
+app.get("/api/products/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      "SELECT id, name, description, price, stock, created_at FROM products WHERE id = $1",
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en GET /api/products/:id:", err.message);
+    res.status(500).json({ error: "Error al obtener el producto" });
+  }
+});
+
+// POST /api/products/new (Protegido - Admin) - Crear producto (nuevo endpoint)
+app.post("/api/products/new", authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { name, description, price, stock } = req.body;
+
+    if (!name || !price) {
+      return res.status(400).json({ error: "Nombre y precio son requeridos" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO products (name, description, price, stock)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [name, description || null, price, stock || 0],
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en POST /api/products/new:", err.message);
+    res.status(500).json({ error: "Error al crear producto" });
+  }
+});
 
 // ==========================================
 // RUTAS DE LA ENTIDAD PRODUCTOS
