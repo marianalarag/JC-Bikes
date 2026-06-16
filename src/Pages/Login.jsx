@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 export default function Login() {
@@ -33,15 +33,14 @@ export default function Login() {
 
             // Redireccionar basado en el rol (Cuenta Maestra vs Cliente Normal)
             if (data.role === 'admin') {
-                alert(`¡Bienvenido Administrador ${data.name}! Redirigiendo al panel maestro...`);
                 // Reemplaza con tu ruta real de dashboard maestro en el futuro
                 navigate('/dashboard'); 
             } else {
-                alert(`¡Bienvenido ${data.name}! Redirigiendo a tu tienda...`);
                 navigate('/shop');
             }
 
         } catch (err) {
+            console.error("Error en login:", err);
             setError('Error de conexión con el servidor.');
         }
     };

@@ -1,13 +1,23 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import api from '../utils/api';
 
 export default function Home({ 
     canLogin = true, 
     canRegister = true, 
-    user = null, 
     laravelVersion = "10.0", 
     phpVersion = "8.1" 
 }) {
+    // Obtener los datos del usuario del localStorage (para consistencia con el login existente)
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    const [categories, setCategories] = useState([]);
+
+    useEffect(() => {
+        api.get('/categories')
+            .then(res => setCategories(res.data))
+            .catch(err => console.error("Error al cargar categorías:", err));
+    }, []);
+
     return (
         <>
             <title>Bienvenido a JC Bikes</title>
@@ -57,6 +67,23 @@ export default function Home({
                         </div>
                     </div>
                 </nav>
+
+                {/* Sub-navegación de Categorías Dinámicas (Estilo Bikeinn) */}
+                <div className="bg-white dark:bg-gray-850 border-t border-b border-gray-200 dark:border-gray-700 py-3 shadow-sm">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="flex space-x-8 overflow-x-auto no-scrollbar scroll-smooth">
+                            {categories.map((cat) => (
+                                <Link
+                                    key={cat.id}
+                                    to={`/shop?category=${cat.id}`}
+                                    className="text-xs font-bold text-gray-600 hover:text-orange-500 dark:text-gray-300 dark:hover:text-orange-400 uppercase tracking-widest transition-colors duration-150 shrink-0"
+                                >
+                                    {cat.name}
+                                </Link>
+                            ))}
+                        </div>
+                    </div>
+                </div>
 
                 {/* Hero Section */}
                 <div className="relative bg-white dark:bg-gray-800 overflow-hidden">
