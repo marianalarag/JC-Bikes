@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../utils/api";
 
 const PLACEHOLDER_IMAGES = {
-  default: "https://placehold.co/400x300?text=JC+BIKES",
+  default: "https://placehold.co/400x300/1e40af/white?text=JC+BIKES",
   bicicleta:
     "https://images.unsplash.com/photo-1576435728678-68d0fbf94e91?w=400",
   casco: "https://images.unsplash.com/photo-1575408264798-b50b252663e6?w=400",
@@ -11,21 +13,63 @@ const PLACEHOLDER_IMAGES = {
 };
 
 const getImageForProduct = (productName) => {
-  if (productName.toLowerCase().includes("bicicleta"))
-    return PLACEHOLDER_IMAGES.bicicleta;
-  if (productName.toLowerCase().includes("casco"))
-    return PLACEHOLDER_IMAGES.casco;
-  if (productName.toLowerCase().includes("herramienta"))
+  const name = productName.toLowerCase();
+  if (name.includes("bicicleta")) return PLACEHOLDER_IMAGES.bicicleta;
+  if (name.includes("casco")) return PLACEHOLDER_IMAGES.casco;
+  if (name.includes("herramienta") || name.includes("kit"))
     return PLACEHOLDER_IMAGES.herramienta;
-  if (productName.toLowerCase().includes("luz")) return PLACEHOLDER_IMAGES.luz;
+  if (name.includes("luz")) return PLACEHOLDER_IMAGES.luz;
   return PLACEHOLDER_IMAGES.default;
 };
 
 export default function ProductCard({ product }) {
-  const imageUrl = product.image_url || getImageForProduct(product.name);
+  const navigate = useNavigate();
+  const [primaryImage, setPrimaryImage] = useState(null);
+  const [loadingImage, setLoadingImage] = useState(true);
+
+  useEffect(() => {
+    // Buscar la imagen principal del producto
+    const fetchPrimaryImage = async () => {
+      try {
+        const res = await api.get(`/products/${product.id}/images`);
+        const primary = res.data.find((img) => img.is_primary);
+        if (primary) {
+          // Si es URL externa la usa directamente, si no agrega el backend
+          const imageUrl = primary.image_url.startsWith("http")
+            ? primary.image_url
+            : `http://localhost:5000${primary.image_url}`;
+          setPrimaryImage(imageUrl);
+        }
+      } catch (err) {
+        console.error("Error cargando imagen principal:", err);
+      } finally {
+        setLoadingImage(false);
+      }
+    };
+
+    fetchPrimaryImage();
+  }, [product.id]);
+
+  const handleClick = () => {
+    navigate(`/product/${product.id}`);
+  };
+
+  const handleAddToCart = (e) => {
+    e.stopPropagation();
+    console.log("Agregar al carrito:", product.id);
+  };
+
+  // Determinar qué imagen mostrar
+  const imageUrl = loadingImage
+    ? getImageForProduct(product.name)
+    : primaryImage || getImageForProduct(product.name);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden flex flex-col hover:shadow-lg transition-shadow duration-300">
+    <div
+      onClick={handleClick}
+      className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden flex flex-col hover:shadow-lg transition-shadow duration-300 cursor-pointer"
+      style={{ cursor: "pointer" }}
+    >
       <div className="h-48 bg-gray-200 dark:bg-gray-700 overflow-hidden">
         <img
           src={imageUrl}
@@ -44,7 +88,10 @@ export default function ProductCard({ product }) {
           <span className="text-2xl font-bold text-green-600 dark:text-green-400">
             ${parseFloat(product.price).toFixed(2)}
           </span>
-          <button className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors">
+          <button
+            onClick={handleAddToCart}
+            className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors"
+          >
             Añadir
           </button>
         </div>
