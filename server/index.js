@@ -322,9 +322,140 @@ app.delete(
   },
 );
 
+// Endpoint para crear tablas de tienda y cargar datos de prueba
+app.get("/api/setup-store", async (req, res) => {
+  try {
+    await pool.query(`
+      DROP TABLE IF EXISTS reviews, product_variants, product_images, products, categories CASCADE;
+
+      CREATE TABLE IF NOT EXISTS categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS products (
+        id SERIAL PRIMARY KEY,
+        category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+        name VARCHAR(255) UNIQUE NOT NULL,
+        description TEXT,
+        price NUMERIC(10, 2) NOT NULL,
+        stock INTEGER DEFAULT 0,
+        image_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS product_images (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+        image_url TEXT NOT NULL,
+        is_primary BOOLEAN DEFAULT FALSE,
+        display_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS product_variants (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+        color VARCHAR(50),
+        size VARCHAR(50),
+        stock INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS reviews (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+        comment TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.query(`
+      INSERT INTO categories (name) VALUES
+      ('Bicicletas'),
+      ('Accesorios'),
+      ('Repuestos')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    await pool.query(`
+      INSERT INTO products (category_id, name, description, price, stock, image_url) VALUES
+      ((SELECT id FROM categories WHERE name = 'Bicicletas' LIMIT 1), 'Bicicleta de Montana Pro', 'Chasis de aluminio ligero, frenos de disco hidraulicos y suspension avanzada.', 599.99, 10, 'https://images.unsplash.com/photo-1532298229144-0ec0c57515c7?w=600&q=80'),
+      ((SELECT id FROM categories WHERE name = 'Accesorios' LIMIT 1), 'Casco Aerodinamico', 'Maxima proteccion y velocidad con diseno ergonomico y ventilado.', 89.50, 10, 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&q=80'),
+      ((SELECT id FROM categories WHERE name = 'Repuestos' LIMIT 1), 'Cadena Shimano 11v', 'Alta durabilidad y rendimiento para las subidas mas exigentes.', 25.00, 20, 'https://images.unsplash.com/photo-1558235282-50dce421d014?w=600&q=80')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    await pool.query("DELETE FROM product_variants; DELETE FROM reviews;");
+
+    await pool.query(`
+      INSERT INTO product_variants (product_id, color, size, stock) VALUES
+      ((SELECT id FROM products WHERE name = 'Bicicleta de Montana Pro' LIMIT 1), 'Rojo', 'M', 5),
+      ((SELECT id FROM products WHERE name = 'Bicicleta de Montana Pro' LIMIT 1), 'Rojo', 'L', 3),
+      ((SELECT id FROM products WHERE name = 'Bicicleta de Montana Pro' LIMIT 1), 'Negro', 'M', 2),
+      ((SELECT id FROM products WHERE name = 'Casco Aerodinamico' LIMIT 1), 'Blanco', 'Unica', 10);
+
+      INSERT INTO reviews (product_id, user_id, rating, comment) VALUES
+      ((SELECT id FROM products WHERE name = 'Bicicleta de Montana Pro' LIMIT 1), (SELECT id FROM users LIMIT 1), 5, 'Excelente bicicleta.'),
+      ((SELECT id FROM products WHERE name = 'Bicicleta de Montana Pro' LIMIT 1), (SELECT id FROM users LIMIT 1), 4, 'Muy buena pero algo pesada.'),
+      ((SELECT id FROM products WHERE name = 'Casco Aerodinamico' LIMIT 1), (SELECT id FROM users LIMIT 1), 5, 'Muy seguro y comodo.');
+    `);
+
+    res.send("Tablas de tienda y productos de prueba creados exitosamente.");
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Error configurando la tienda: " + err.message);
+  }
+});
+
 // ==========================================
 // RUTAS DE PRODUCTOS (ORDEN CORRECTO)
 // ==========================================
+
+// 0. Ruta para productos con buscador y filtros
+app.get("/api/products", async (req, res) => {
+  try {
+    const { search, category_id } = req.query;
+
+    let query = `
+      SELECT p.*,
+        c.name as category_name,
+        (SELECT COALESCE(AVG(rating), 0) FROM reviews WHERE product_id = p.id) as average_rating,
+        (SELECT COUNT(id) FROM reviews WHERE product_id = p.id) as review_count,
+        (
+          SELECT json_agg(json_build_object('color', pv.color, 'size', pv.size, 'stock', pv.stock))
+          FROM product_variants pv WHERE pv.product_id = p.id
+        ) as variants
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE 1=1
+    `;
+
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (search) {
+      query += ` AND p.name ILIKE $${paramIndex}`;
+      queryParams.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (category_id) {
+      query += ` AND p.category_id = $${paramIndex}`;
+      queryParams.push(category_id);
+      paramIndex++;
+    }
+
+    query += " ORDER BY p.id DESC";
+
+    const allProducts = await pool.query(query, queryParams);
+    res.json(allProducts.rows);
+  } catch (err) {
+    console.error("Error en GET /api/products:", err.message);
+    res.status(500).send("Error en el servidor");
+  }
+});
 
 // 1. Ruta específica para productos simples (DEBE IR PRIMERO)
 app.get("/api/products/simple", async (req, res) => {
