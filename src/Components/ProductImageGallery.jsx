@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import api from "../utils/api";
 
 export default function ProductImageGallery({ productId }) {
@@ -6,22 +6,15 @@ export default function ProductImageGallery({ productId }) {
   const [selectedImage, setSelectedImage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    checkAdmin();
-    fetchImages();
-  }, [productId]);
-
-  const checkAdmin = () => {
+  const [isAdmin] = useState(() => {
     const user = localStorage.getItem("user");
-    if (user) {
-      const userData = JSON.parse(user);
-      setIsAdmin(userData.role === "admin");
-    }
-  };
+    if (!user) return false;
 
-  const fetchImages = async () => {
+    const userData = JSON.parse(user);
+    return userData.role === "admin";
+  });
+
+  const fetchImages = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get(`/products/${productId}/images`);
@@ -34,7 +27,26 @@ export default function ProductImageGallery({ productId }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [productId]);
+
+  useEffect(() => {
+    const loadImages = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get(`/products/${productId}/images`);
+        console.log("ImÃ¡genes cargadas:", res.data);
+        setImages(res.data);
+        const primary = res.data.find((img) => img.is_primary);
+        setSelectedImage(primary || res.data[0] || null);
+      } catch (err) {
+        console.error("Error al cargar imÃ¡genes:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadImages();
+  }, [productId]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];

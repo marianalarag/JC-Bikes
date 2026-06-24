@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
+import { useCart } from "../context/useCart";
 
 const PLACEHOLDER_IMAGES = {
   default: "https://placehold.co/400x300/1e40af/white?text=JC+BIKES",
@@ -24,17 +25,18 @@ const getImageForProduct = (productName) => {
 
 export default function ProductCard({ product }) {
   const navigate = useNavigate();
+  const { addToCart } = useCart();
   const [primaryImage, setPrimaryImage] = useState(null);
   const [loadingImage, setLoadingImage] = useState(true);
+  const [cartMessage, setCartMessage] = useState("");
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    // Buscar la imagen principal del producto
     const fetchPrimaryImage = async () => {
       try {
         const res = await api.get(`/products/${product.id}/images`);
         const primary = res.data.find((img) => img.is_primary);
         if (primary) {
-          // Si es URL externa la usa directamente, si no agrega el backend
           const imageUrl = primary.image_url.startsWith("http")
             ? primary.image_url
             : `http://localhost:5000${primary.image_url}`;
@@ -54,12 +56,22 @@ export default function ProductCard({ product }) {
     navigate(`/product/${product.id}`);
   };
 
-  const handleAddToCart = (e) => {
+  const handleAddToCart = async (e) => {
     e.stopPropagation();
-    console.log("Agregar al carrito:", product.id);
+    setAdding(true);
+    setCartMessage("");
+
+    try {
+      const result = await addToCart(product, 1);
+      setCartMessage(result.message);
+    } catch (err) {
+      console.error("Error agregando al carrito:", err);
+      setCartMessage("No se pudo verificar el stock.");
+    } finally {
+      setAdding(false);
+    }
   };
 
-  // Determinar qué imagen mostrar
   const imageUrl = loadingImage
     ? getImageForProduct(product.name)
     : primaryImage || getImageForProduct(product.name);
@@ -82,7 +94,7 @@ export default function ProductCard({ product }) {
           {product.name}
         </h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 flex-1 line-clamp-2">
-          {product.description || "Sin descripción"}
+          {product.description || "Sin descripcion"}
         </p>
         <div className="mt-4 flex items-center justify-between">
           <span className="text-2xl font-bold text-green-600 dark:text-green-400">
@@ -90,11 +102,17 @@ export default function ProductCard({ product }) {
           </span>
           <button
             onClick={handleAddToCart}
-            className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors"
+            disabled={adding || Number(product.stock || 0) <= 0}
+            className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
-            Añadir
+            {adding ? "..." : "Anadir"}
           </button>
         </div>
+        {cartMessage && (
+          <p className="mt-2 text-xs text-blue-700 dark:text-blue-300">
+            {cartMessage}
+          </p>
+        )}
       </div>
     </div>
   );

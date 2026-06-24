@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../utils/api';
+import { useCart } from '../context/useCart';
+import BrandLogo from '../Components/BrandLogo';
 
 export default function Home({ 
     canLogin = true, 
@@ -11,6 +13,7 @@ export default function Home({
     // Obtener los datos del usuario del localStorage (para consistencia con el login existente)
     const user = JSON.parse(localStorage.getItem('user') || 'null');
     const [categories, setCategories] = useState([]);
+    const { totalItems } = useCart();
 
     useEffect(() => {
         api.get('/categories')
@@ -29,14 +32,16 @@ export default function Home({
                         <div className="flex justify-between h-16">
                             <div className="flex">
                                 <div className="shrink-0 flex items-center">
-                                    <img src="src/images/jcbikes transparente.png" alt="BikeShop Logo" className="h-10 w-auto" />
-                                    <span className="ml-3 font-bold text-xl text-gray-800 dark:text-white">JC BIKES</span>
+                                    <BrandLogo />
                                 </div>
                             </div>
                             <div className="flex items-center">
                                 <div className="hidden md:flex space-x-8 mr-10">
                                     <Link to="/shop" className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white font-medium">
                                         Tienda
+                                    </Link>
+                                    <Link to="/cart" className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white font-medium">
+                                        Carrito ({totalItems})
                                     </Link>
                                 </div>
                                 {canLogin && (
@@ -88,9 +93,9 @@ export default function Home({
                 {/* Hero Section */}
                 <div className="relative bg-white dark:bg-gray-800 overflow-hidden">
                     <div className="max-w-7xl mx-auto">
-                        <div className="relative z-10 pb-8 bg-white dark:bg-gray-800 sm:pb-16 md:pb-20 lg:max-w-2xl lg:w-full lg:pb-28 xl:pb-32">
-                            <main className="mt-10 mx-auto max-w-7xl px-4 sm:mt-12 sm:px-6 md:mt-16 lg:mt-20 lg:px-8 xl:mt-28">
-                                <div className="sm:text-center lg:text-left">
+                        <div className="relative z-10 pb-8 sm:pb-16 md:pb-20 lg:max-w-2xl lg:w-full lg:pb-28 xl:pb-32 lg:bg-gradient-to-r lg:from-white lg:via-white/90 lg:to-transparent dark:lg:from-gray-800 dark:lg:via-gray-800/90 dark:lg:to-transparent">
+                            <main className="mt-10 mx-auto max-w-7xl px-4 sm:mt-12 sm:px-6 md:mt-16 lg:mt-20 lg:pl-2 lg:pr-8 xl:mt-28 xl:pl-0">
+                                <div className="sm:text-center lg:text-left lg:max-w-xl">
                                     <h1 className="text-4xl tracking-tight font-extrabold text-gray-900 dark:text-white sm:text-5xl md:text-6xl">
                                         <span className="block xl:inline">Tu bicicleta merece</span>
                                         <span className="block text-blue-900 xl:inline"> el mejor servicio</span>

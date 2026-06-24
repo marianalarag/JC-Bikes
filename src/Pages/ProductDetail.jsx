@@ -1,27 +1,47 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../utils/api";
 import ProductImageGallery from "../Components/ProductImageGallery";
+import { useCart } from "../context/useCart";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const { addToCart } = useCart();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [quantity, setQuantity] = useState(1);
+  const [cartMessage, setCartMessage] = useState("");
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
+    const fetchProduct = async () => {
+      try {
+        const res = await api.get(`/products/${id}`);
+        setProduct(res.data);
+      } catch (err) {
+        setError("Error al cargar el producto");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchProduct();
   }, [id]);
 
-  const fetchProduct = async () => {
+  const handleAddToCart = async () => {
+    setAdding(true);
+    setCartMessage("");
+
     try {
-      const res = await api.get(`/products/${id}`);
-      setProduct(res.data);
+      const result = await addToCart(product, quantity);
+      setCartMessage(result.message);
     } catch (err) {
-      setError("Error al cargar el producto");
-      console.error(err);
+      console.error("Error agregando al carrito:", err);
+      setCartMessage("No se pudo verificar el stock.");
     } finally {
-      setLoading(false);
+      setAdding(false);
     }
   };
 
@@ -44,28 +64,37 @@ export default function ProductDetail() {
     );
   }
 
+  const stock = Number(product.stock || 0);
+  const quantityOptions = Array.from(
+    { length: Math.min(stock, 10) },
+    (_, index) => index + 1,
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
       <div className="container mx-auto px-4">
-        <Link
-          to="/shop"
-          className="text-blue-600 hover:underline mb-4 inline-block"
-        >
-          ← Volver a la tienda
-        </Link>
+        <div className="flex justify-between items-center mb-4">
+          <Link to="/shop" className="text-blue-600 hover:underline">
+            Volver a la tienda
+          </Link>
+          <Link
+            to="/cart"
+            className="text-blue-600 hover:underline font-semibold"
+          >
+            Ver carrito
+          </Link>
+        </div>
 
         <div className="grid md:grid-cols-2 gap-8">
-          {/* GALERÍA DE IMÁGENES - Esto es lo que pide el sprint */}
           <ProductImageGallery productId={product.id} />
 
-          {/* Información del producto */}
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
               {product.name}
             </h1>
 
             <p className="text-gray-600 dark:text-gray-300 mb-6">
-              {product.description || "Sin descripción"}
+              {product.description || "Sin descripcion"}
             </p>
 
             <div className="mb-6">
@@ -78,18 +107,37 @@ export default function ProductDetail() {
               <label className="block text-gray-700 dark:text-gray-300 mb-2">
                 Cantidad:
               </label>
-              <select className="border rounded-lg px-4 py-2 dark:bg-gray-700">
-                {[...Array(10)].map((_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {i + 1}
-                  </option>
-                ))}
+              <select
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                disabled={stock <= 0}
+                className="border rounded-lg px-4 py-2 dark:bg-gray-700 disabled:opacity-60"
+              >
+                {quantityOptions.length > 0 ? (
+                  quantityOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))
+                ) : (
+                  <option value="0">Sin stock</option>
+                )}
               </select>
             </div>
 
-            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors">
-              Agregar al carrito
+            <button
+              onClick={handleAddToCart}
+              disabled={adding || stock <= 0}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {adding ? "Agregando..." : "Agregar al carrito"}
             </button>
+
+            {cartMessage && (
+              <p className="mt-3 text-sm text-blue-700 dark:text-blue-300">
+                {cartMessage}
+              </p>
+            )}
 
             {product.stock !== undefined && (
               <p className="mt-4 text-sm text-gray-500">

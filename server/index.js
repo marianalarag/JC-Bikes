@@ -7,16 +7,72 @@ require("dotenv").config();
 
 const app = express();
 
-// Middleware
-app.use(cors()); // Permite peticiones desde el frontend (React)
-app.use(express.json()); // Permite recibir y enviar JSON
+const multer = require("multer");
+const path = require("path");
+const { v4: uuidv4 } = require("uuid");
+const fs = require("fs");
 
-// 1. Endpoint para iniciar sesión (Login)
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// ==========================================
+// CONFIGURACIÓN DE MULTER PARA IMÁGENES
+// ==========================================
+
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const uniqueName = `${uuidv4()}${ext}`;
+    cb(null, uniqueName);
+  },
+});
+
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  const extname = allowedTypes.test(
+    path.extname(file.originalname).toLowerCase(),
+  );
+  const mimetype = allowedTypes.test(file.mimetype);
+
+  if (mimetype && extname) {
+    cb(null, true);
+  } else {
+    cb(new Error("Solo se permiten imágenes (jpeg, jpg, png, gif, webp)"));
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: fileFilter,
+});
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// ==========================================
+// ENDPOINTS DE PRUEBA
+// ==========================================
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+// ==========================================
+// ENDPOINTS DE AUTENTICACIÓN
+// ==========================================
+
 app.post("/api/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Buscar al usuario en la base de datos
     const userResult = await pool.query(
       "SELECT * FROM users WHERE email = $1",
       [email],
@@ -27,21 +83,17 @@ app.post("/api/login", async (req, res) => {
     }
 
     const user = userResult.rows[0];
-
-    // Verificar que la contraseña coincida con la encriptada
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
       return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
-    // Generar un Token de sesión válido por 2 horas
     const token = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET || "super_secreto_desarrollo",
       { expiresIn: "2h" },
     );
 
-    // Enviar respuesta exitosa con el rol del usuario
     res.json({
       message: "Login exitoso",
       token,
@@ -54,52 +106,44 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// 2. Endpoint temporal "Mágico" para crear tus usuarios de prueba iniciales
 app.get("/api/setup-users", async (req, res) => {
   try {
-    // Encriptamos las contraseñas
     const hashedAdminPass = await bcrypt.hash("admin123", 10);
     const hashedUserPass = await bcrypt.hash("cliente123", 10);
 
-    // Insertamos al Administrador (Cuenta Maestra)
     await pool.query(
       "INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING",
       ["Cuenta Maestra", "admin@jcbikes.com", hashedAdminPass, "admin"],
     );
 
-    // Insertamos al Cliente Normal
     await pool.query(
       "INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING",
       ["Cliente Prueba", "cliente@jcbikes.com", hashedUserPass, "customer"],
     );
 
-    res.send("Usuarios de prueba creados exitosamente en DBeaver.");
+    res.send("Usuarios de prueba creados exitosamente.");
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Error creando usuarios");
   }
 });
 
-// 3. Endpoint para Registrar nuevos clientes
 app.post("/api/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validación: Campos requeridos
     if (!name || !email || !password) {
-      return res.status(400).json({
-        error: "Todos los campos son requeridos (name, email, password).",
-      });
+      return res
+        .status(400)
+        .json({ error: "Todos los campos son requeridos." });
     }
 
-    // Validación: Nombre válido
     if (name.trim().length < 3) {
       return res
         .status(400)
         .json({ error: "El nombre debe tener al menos 3 caracteres." });
     }
 
-    // Validación: Email válido
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res
@@ -107,14 +151,12 @@ app.post("/api/register", async (req, res) => {
         .json({ error: "Por favor ingresa un correo electrónico válido." });
     }
 
-    // Validación: Contraseña fuerte (mínimo 8 caracteres)
     if (password.length < 8) {
       return res
         .status(400)
         .json({ error: "La contraseña debe tener al menos 8 caracteres." });
     }
 
-    // Verificar si el usuario ya existe
     const userExists = await pool.query(
       "SELECT * FROM users WHERE email = $1",
       [email.toLowerCase()],
@@ -125,24 +167,19 @@ app.post("/api/register", async (req, res) => {
         .json({ error: "El correo electrónico ya está registrado." });
     }
 
-    // Encriptar contraseña con bcrypt
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Insertar nuevo usuario en la BD
     const newUser = await pool.query(
       "INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, 'customer') RETURNING id, name, email, role",
       [name.trim(), email.toLowerCase(), hashedPassword],
     );
 
-    // Generar token JWT
     const token = jwt.sign(
       { id: newUser.rows[0].id, role: newUser.rows[0].role },
       process.env.JWT_SECRET || "super_secreto_desarrollo",
       { expiresIn: "2h" },
     );
-
-    console.log(`✓ Nuevo usuario registrado: ${email}`);
 
     res.status(201).json({
       message: "Registro exitoso",
@@ -152,16 +189,14 @@ app.post("/api/register", async (req, res) => {
     });
   } catch (err) {
     console.error("Error en /api/register:", err.message);
-    res
-      .status(500)
-      .json({ error: "Error en el servidor. Por favor intenta más tarde." });
+    res.status(500).json({ error: "Error en el servidor." });
   }
 });
 
-// Middleware para verificar JWT
+// Middlewares
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1]; // Formato: "Bearer TOKEN"
+  const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
     return res
@@ -182,7 +217,6 @@ const authenticateToken = (req, res, next) => {
   );
 };
 
-// Middleware para verificar si el usuario es Administrador
 const isAdmin = (req, res, next) => {
   if (req.user && req.user.role === "admin") {
     next();
@@ -194,21 +228,19 @@ const isAdmin = (req, res, next) => {
 };
 
 // ==========================================
-// RUTAS DE LA ENTIDAD CATEGORÍAS
+// RUTAS DE CATEGORÍAS
 // ==========================================
 
-// 1. GET /api/categories (Público) - Obtener todas las categorías
 app.get("/api/categories", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM categories ORDER BY id ASC");
     res.json(result.rows);
   } catch (err) {
     console.error(err.message);
-    res.status(500).send("Error en el servidor al obtener categorías");
+    res.status(500).send("Error al obtener categorías");
   }
 });
 
-// 2. POST /api/categories (Protegido - Admin) - Crear una nueva categoría
 app.post("/api/categories", authenticateToken, isAdmin, async (req, res) => {
   try {
     const { name } = req.body;
@@ -225,15 +257,13 @@ app.post("/api/categories", authenticateToken, isAdmin, async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === "23505") {
-      // Código de error de clave única duplicada en Postgres
       return res.status(400).json({ error: "La categoría ya existe." });
     }
     console.error(err.message);
-    res.status(500).send("Error en el servidor al crear categoría");
+    res.status(500).send("Error al crear categoría");
   }
 });
 
-// 3. PUT /api/categories/:id (Protegido - Admin) - Editar una categoría
 app.put("/api/categories/:id", authenticateToken, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -249,7 +279,6 @@ app.put("/api/categories/:id", authenticateToken, isAdmin, async (req, res) => {
       "UPDATE categories SET name = $1 WHERE id = $2 RETURNING *",
       [name.trim(), id],
     );
-
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Categoría no encontrada." });
     }
@@ -262,11 +291,10 @@ app.put("/api/categories/:id", authenticateToken, isAdmin, async (req, res) => {
         .json({ error: "El nombre de la categoría ya está en uso." });
     }
     console.error(err.message);
-    res.status(500).send("Error en el servidor al editar categoría");
+    res.status(500).send("Error al editar categoría");
   }
 });
 
-// 4. DELETE /api/categories/:id (Protegido - Admin) - Eliminar una categoría
 app.delete(
   "/api/categories/:id",
   authenticateToken,
@@ -289,47 +317,85 @@ app.delete(
       });
     } catch (err) {
       console.error(err.message);
-      res.status(500).send("Error en el servidor al eliminar categoría");
+      res.status(500).send("Error al eliminar categoría");
     }
   },
 );
+
 // ==========================================
-// RUTAS DE PRODUCTOS - VERSIÓN CON PAGINACIÓN
+// RUTAS DE PRODUCTOS (ORDEN CORRECTO)
 // ==========================================
 
-// GET /api/products/paginated - Obtener productos con paginación (NUEVO ENDPOINT)
-app.get("/api/products/paginated", async (req, res) => {
+// 1. Ruta específica para productos simples (DEBE IR PRIMERO)
+app.get("/api/products/simple", async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 12;
-    const offset = (page - 1) * limit;
-
-    // Obtener total de productos
-    const countResult = await pool.query(
-      "SELECT COUNT(*) as total FROM products",
-    );
-    const total = parseInt(countResult.rows[0].total);
-
-    // Obtener productos paginados
-    const result = await pool.query(
-      "SELECT id, name, description, price, stock, created_at FROM products ORDER BY id ASC LIMIT $1 OFFSET $2",
-      [limit, offset],
-    );
-
-    res.json({
-      products: result.rows,
-      total: total,
-      page: page,
-      totalPages: Math.ceil(total / limit),
-    });
+    const result = await pool.query(`
+      SELECT p.id, p.name, p.description, p.price, p.stock, p.category_id, c.name as category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      ORDER BY p.id ASC
+    `);
+    res.json(result.rows);
   } catch (err) {
-    console.error("Error en GET /api/products/paginated:", err.message);
-    res.status(500).json({ error: "Error al obtener productos" });
+    console.error("Error en /api/products/simple:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/products/:id - Obtener un producto por ID (si no existe, agregar)
-// Primero verifica si ya existe esta ruta, si no existe, la agregas
+// 2. Ruta para crear producto
+app.post("/api/products/new", authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { name, description, price, stock } = req.body;
+
+    if (!name || !price) {
+      return res.status(400).json({ error: "Nombre y precio son requeridos" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO products (name, description, price, stock) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [name, description || null, price, stock || 0],
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en POST /api/products/new:", err.message);
+    res.status(500).json({ error: "Error al crear producto" });
+  }
+});
+
+// 3. Ruta ligera para verificar stock disponible al vuelo
+app.get("/api/products/:id/stock", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const parsedQuantity = parseInt(req.query.quantity || "1", 10);
+    const requestedQuantity = Number.isNaN(parsedQuantity)
+      ? 1
+      : Math.max(1, parsedQuantity);
+    const result = await pool.query(
+      "SELECT id, stock FROM products WHERE id = $1",
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+
+    const stock = Number(result.rows[0].stock || 0);
+
+    res.json({
+      productId: result.rows[0].id,
+      stock,
+      requestedQuantity,
+      available: stock > 0,
+      canFulfill: stock >= requestedQuantity,
+    });
+  } catch (err) {
+    console.error("Error en GET /api/products/:id/stock:", err.message);
+    res.status(500).json({ error: "Error al verificar stock" });
+  }
+});
+
+// 4. Ruta para producto por ID (DEBE IR AL FINAL)
 app.get("/api/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -349,89 +415,144 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
-// POST /api/products/new (Protegido - Admin) - Crear producto (nuevo endpoint)
-app.post("/api/products/new", authenticateToken, isAdmin, async (req, res) => {
-  try {
-    const { name, description, price, stock } = req.body;
-
-    if (!name || !price) {
-      return res.status(400).json({ error: "Nombre y precio son requeridos" });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO products (name, description, price, stock)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [name, description || null, price, stock || 0],
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error("Error en POST /api/products/new:", err.message);
-    res.status(500).json({ error: "Error al crear producto" });
-  }
-});
-
 // ==========================================
-// RUTAS DE LA ENTIDAD PRODUCTOS
+// RUTAS PARA IMÁGENES DE PRODUCTOS
 // ==========================================
 
-// GET /api/products - Obtener productos (con opción de filtrar por categoría)
-app.get("/api/products", async (req, res) => {
-  try {
-    const { category } = req.query;
-    let query = "SELECT * FROM products";
-    const params = [];
+app.post(
+  "/api/products/:id/images",
+  authenticateToken,
+  isAdmin,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const product = await pool.query("SELECT * FROM products WHERE id = $1", [
+        id,
+      ]);
 
-    if (category) {
-      query += " WHERE category_id = $1";
-      params.push(category);
-    }
-
-    query += " ORDER BY id ASC";
-    const allProducts = await pool.query(query, params);
-
-    // Si la base de datos de productos está vacía, sembramos productos iniciales dinámicamente
-    if (allProducts.rows.length === 0 && !category) {
-      const cats = await pool.query("SELECT * FROM categories");
-      if (cats.rows.length > 0) {
-        const biciCat =
-          cats.rows.find((c) => c.name === "Bicicletas")?.id || cats.rows[0].id;
-        const compCat =
-          cats.rows.find((c) => c.name === "Componentes")?.id ||
-          cats.rows[0].id;
-        const equipCat =
-          cats.rows.find((c) => c.name === "Equipamiento")?.id ||
-          cats.rows[0].id;
-
-        await pool.query(
-          "INSERT INTO products (name, price, category_id) VALUES ($1, $2, $3), ($4, $5, $6), ($7, $8, $9)",
-          [
-            "Bicicleta de Ruta Trek Emonda",
-            2499.99,
-            biciCat,
-            "Transmisión Shimano Dura-Ace",
-            350.0,
-            compCat,
-            "Casco Aero Specialized Evade",
-            120.0,
-            equipCat,
-          ],
-        );
-
-        const newProducts = await pool.query(
-          "SELECT * FROM products ORDER BY id ASC",
-        );
-        return res.json(newProducts.rows);
+      if (product.rows.length === 0) {
+        return res.status(404).json({ error: "Producto no encontrado" });
       }
-    }
 
-    res.json(allProducts.rows);
+      if (!req.file) {
+        return res
+          .status(400)
+          .json({ error: "No se ha subido ninguna imagen" });
+      }
+
+      const imageUrl = `/uploads/${req.file.filename}`;
+      const result = await pool.query(
+        "INSERT INTO product_images (product_id, image_url, is_primary, display_order) VALUES ($1, $2, $3, $4) RETURNING *",
+        [id, imageUrl, false, 0],
+      );
+
+      const countImages = await pool.query(
+        "SELECT COUNT(*) FROM product_images WHERE product_id = $1",
+        [id],
+      );
+      if (parseInt(countImages.rows[0].count) === 1) {
+        await pool.query(
+          "UPDATE product_images SET is_primary = TRUE WHERE id = $1",
+          [result.rows[0].id],
+        );
+      }
+
+      res.status(201).json({
+        success: true,
+        message: "Imagen subida exitosamente",
+        image: result.rows[0],
+        url: imageUrl,
+      });
+    } catch (err) {
+      console.error("Error en POST /api/products/:id/images:", err.message);
+      res
+        .status(500)
+        .json({ error: "Error al subir la imagen: " + err.message });
+    }
+  },
+);
+
+app.get("/api/products/:id/images", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      "SELECT * FROM product_images WHERE product_id = $1 ORDER BY is_primary DESC, display_order ASC, id ASC",
+      [id],
+    );
+    res.json(result.rows);
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Error en el servidor al obtener productos");
+    console.error("Error en GET /api/products/:id/images:", err.message);
+    res.status(500).json({ error: "Error al obtener las imágenes" });
   }
 });
+
+app.put(
+  "/api/products/images/:imageId/primary",
+  authenticateToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const { imageId } = req.params;
+      const image = await pool.query(
+        "SELECT * FROM product_images WHERE id = $1",
+        [imageId],
+      );
+
+      if (image.rows.length === 0) {
+        return res.status(404).json({ error: "Imagen no encontrada" });
+      }
+
+      const productId = image.rows[0].product_id;
+      await pool.query(
+        "UPDATE product_images SET is_primary = FALSE WHERE product_id = $1",
+        [productId],
+      );
+      await pool.query(
+        "UPDATE product_images SET is_primary = TRUE WHERE id = $1",
+        [imageId],
+      );
+
+      res.json({ message: "Imagen marcada como principal" });
+    } catch (err) {
+      console.error("Error:", err.message);
+      res.status(500).json({ error: "Error al actualizar la imagen" });
+    }
+  },
+);
+
+app.delete(
+  "/api/products/images/:imageId",
+  authenticateToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const { imageId } = req.params;
+      const image = await pool.query(
+        "SELECT * FROM product_images WHERE id = $1",
+        [imageId],
+      );
+
+      if (image.rows.length === 0) {
+        return res.status(404).json({ error: "Imagen no encontrada" });
+      }
+
+      const imageUrl = image.rows[0].image_url;
+      const filename = path.basename(imageUrl);
+      const filePath = path.join(uploadDir, filename);
+
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      await pool.query("DELETE FROM product_images WHERE id = $1", [imageId]);
+      res.json({ message: "Imagen eliminada exitosamente" });
+    } catch (err) {
+      console.error("Error:", err.message);
+      res.status(500).json({ error: "Error al eliminar la imagen" });
+    }
+  },
+);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

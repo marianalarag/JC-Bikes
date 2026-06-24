@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import api from "../utils/api";
 
@@ -20,12 +20,7 @@ export default function AdminProducts() {
     category_id: "",
   });
 
-  useEffect(() => {
-    fetchProducts();
-    fetchCategories();
-  }, []);
-
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const res = await api.get("/products/paginated?page=1&limit=100");
       setProducts(res.data.products);
@@ -35,16 +30,33 @@ export default function AdminProducts() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchCategories = async () => {
-    try {
-      const res = await api.get("/categories");
-      setCategories(res.data);
-    } catch (err) {
-      console.error("Error:", err);
-    }
-  };
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const res = await api.get("/products/paginated?page=1&limit=100");
+        setProducts(res.data.products);
+      } catch (err) {
+        console.error("Error:", err);
+        setError("Error al cargar productos");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const loadCategories = async () => {
+      try {
+        const res = await api.get("/categories");
+        setCategories(res.data);
+      } catch (err) {
+        console.error("Error:", err);
+      }
+    };
+
+    loadProducts();
+    loadCategories();
+  }, []);
 
   const handleInputChange = (e) => {
     setFormData({

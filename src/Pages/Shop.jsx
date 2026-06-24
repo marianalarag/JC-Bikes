@@ -2,15 +2,16 @@ import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api from "../utils/api";
 import ProductCard from "../Components/ProductCard";
+import { useCart } from "../context/useCart";
+import BrandLogo from "../Components/BrandLogo";
 
 export default function Shop() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeCategoryId = searchParams.get("category");
+  const { totalItems } = useCart();
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -31,7 +32,6 @@ export default function Shop() {
         // Usar el endpoint simple por ahora
         const res = await api.get("/products/simple");
         setProducts(res.data);
-        setTotalPages(1);
       } catch (err) {
         console.error("Error al cargar productos:", err);
         setProducts([]);
@@ -70,11 +70,7 @@ export default function Shop() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <Link to="/" className="flex items-center">
-                <span className="font-bold text-xl text-gray-800 dark:text-white">
-                  JC BIKES
-                </span>
-              </Link>
+              <BrandLogo />
             </div>
             <div className="flex items-center gap-4">
               <Link
@@ -82,6 +78,12 @@ export default function Shop() {
                 className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white font-medium"
               >
                 Volver a Inicio
+              </Link>
+              <Link
+                to="/cart"
+                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+              >
+                Carrito ({totalItems})
               </Link>
             </div>
           </div>

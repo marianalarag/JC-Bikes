@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import ProductCard from "./ProductCard";
 import api from "../utils/api";
 
@@ -10,24 +10,24 @@ export default function ProductGrid() {
   const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
+    const fetchProducts = async () => {
+      setLoading(true);
+      try {
+        const response = await api.get(
+          `/products/paginated?page=${page}&limit=12`,
+        );
+        setProducts(response.data.products);
+        setTotalPages(response.data.totalPages);
+      } catch (err) {
+        setError("Error al cargar productos");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchProducts();
   }, [page]);
-
-  const fetchProducts = async () => {
-    setLoading(true);
-    try {
-      const response = await api.get(
-        `/products/paginated?page=${page}&limit=12`,
-      );
-      setProducts(response.data.products);
-      setTotalPages(response.data.totalPages);
-    } catch (err) {
-      setError("Error al cargar productos");
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (loading) {
     return (

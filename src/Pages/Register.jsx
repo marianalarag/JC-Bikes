@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import BrandLogo from "../Components/BrandLogo";
 
 export default function Register() {
   const [name, setName] = useState("");
@@ -109,6 +110,9 @@ export default function Register() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="flex justify-center">
+          <BrandLogo size="lg" textClassName="tracking-tight" />
+        </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
           Crea tu cuenta
         </h2>
