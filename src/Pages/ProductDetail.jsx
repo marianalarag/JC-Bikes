@@ -130,7 +130,11 @@ export default function ProductDetail() {
               disabled={adding || stock <= 0}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              {adding ? "Agregando..." : "Agregar al carrito"}
+              {stock <= 0
+                ? "Agotado"
+                : adding
+                  ? "Agregando..."
+                  : "Agregar al carrito"}
             </button>
 
             {cartMessage && (

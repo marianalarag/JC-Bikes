@@ -75,6 +75,7 @@ export default function ProductCard({ product }) {
   const imageUrl = loadingImage
     ? getImageForProduct(product.name)
     : primaryImage || getImageForProduct(product.name);
+  const isOutOfStock = Number(product.stock || 0) <= 0;
 
   return (
     <div
@@ -102,10 +103,10 @@ export default function ProductCard({ product }) {
           </span>
           <button
             onClick={handleAddToCart}
-            disabled={adding || Number(product.stock || 0) <= 0}
+            disabled={adding || isOutOfStock}
             className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
-            {adding ? "..." : "Anadir"}
+            {isOutOfStock ? "Agotado" : adding ? "..." : "Anadir"}
           </button>
         </div>
         {cartMessage && (

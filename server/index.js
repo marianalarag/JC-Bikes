@@ -339,7 +339,7 @@ app.get("/api/setup-store", async (req, res) => {
         name VARCHAR(255) UNIQUE NOT NULL,
         description TEXT,
         price NUMERIC(10, 2) NOT NULL,
-        stock INTEGER DEFAULT 0,
+        stock INTEGER DEFAULT 0 CHECK (stock >= 0),
         image_url TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -436,6 +436,21 @@ const ensureOrderTables = async (client) => {
     ALTER TABLE products
     ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 0;
 
+    UPDATE products SET stock = 0 WHERE stock < 0;
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'products_stock_non_negative'
+      ) THEN
+        ALTER TABLE products
+        ADD CONSTRAINT products_stock_non_negative CHECK (stock >= 0);
+      END IF;
+    END
+    $$;
+
     CREATE TABLE IF NOT EXISTS orders (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -456,13 +471,15 @@ const ensureOrderTables = async (client) => {
   `);
 };
 
-app.post("/api/orders", async (req, res) => {
+const discountInventoryOnPayment = async (req, res, next) => {
   const client = await pool.connect();
+  let transactionStarted = false;
 
   try {
     const { items } = req.body;
 
     if (!Array.isArray(items) || items.length === 0) {
+      client.release();
       return res.status(400).json({ error: "La orden no tiene productos." });
     }
 
@@ -484,6 +501,7 @@ app.post("/api/orders", async (req, res) => {
 
     await ensureOrderTables(client);
     await client.query("BEGIN");
+    transactionStarted = true;
 
     const normalizedItems = items.map((item) => ({
       productId: Number(item.productId),
@@ -499,6 +517,7 @@ app.post("/api/orders", async (req, res) => {
       )
     ) {
       await client.query("ROLLBACK");
+      client.release();
       return res.status(400).json({ error: "Productos de orden invalidos." });
     }
 
@@ -513,6 +532,7 @@ app.post("/api/orders", async (req, res) => {
 
       if (productResult.rows.length === 0) {
         await client.query("ROLLBACK");
+        client.release();
         return res.status(404).json({ error: "Producto no encontrado." });
       }
 
@@ -521,6 +541,7 @@ app.post("/api/orders", async (req, res) => {
 
       if (stock < item.quantity) {
         await client.query("ROLLBACK");
+        client.release();
         return res.status(409).json({
           error: `Stock insuficiente para ${product.name}.`,
           productId: product.id,
@@ -545,6 +566,25 @@ app.post("/api/orders", async (req, res) => {
         lineTotal,
       });
     }
+
+    req.orderClient = client;
+    req.orderDraft = { userId, total, orderItems };
+    next();
+  } catch (err) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
+    client.release();
+    console.error("Error descontando inventario:", err.message);
+    res.status(500).json({ error: "Error al descontar inventario." });
+  }
+};
+
+app.post("/api/orders", discountInventoryOnPayment, async (req, res) => {
+  const client = req.orderClient;
+
+  try {
+    const { userId, total, orderItems } = req.orderDraft;
 
     const orderResult = await client.query(
       "INSERT INTO orders (user_id, total, status) VALUES ($1, $2, $3) RETURNING id, user_id, total, status, created_at",
