@@ -8,6 +8,7 @@ import ProtectedRoute from "./Components/ProtectedRoute.jsx";
 import ProductDetail from "./Pages/ProductDetail";
 import AdminProducts from "./Pages/AdminProducts";
 import Cart from "./Pages/Cart";
+import OrderSuccess from "./Pages/OrderSuccess";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/product/:id" element={<ProductDetail />} />
       <Route path="/cart" element={<Cart />} />
+      <Route path="/order-success" element={<OrderSuccess />} />
       <Route
         path="/dashboard"
         element={

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../utils/api";
 import { useCart } from "../context/useCart";
 import BrandLogo from "../Components/BrandLogo";
@@ -58,6 +58,7 @@ function CartItemImage({ product }) {
 }
 
 export default function Cart() {
+  const navigate = useNavigate();
   const {
     items,
     subtotal,
@@ -65,11 +66,36 @@ export default function Cart() {
     removeFromCart,
     clearCart,
   } = useCart();
+  const [checkoutError, setCheckoutError] = useState("");
+  const [checkingOut, setCheckingOut] = useState(false);
 
   const handleQuantityChange = async (productId, quantity) => {
     const result = await updateQuantity(productId, quantity);
     if (!result.ok) {
       alert(result.message);
+    }
+  };
+
+  const handleCheckout = async () => {
+    setCheckoutError("");
+    setCheckingOut(true);
+
+    try {
+      const response = await api.post("/orders", {
+        items: items.map(({ product, quantity }) => ({
+          productId: product.id,
+          quantity,
+        })),
+      });
+
+      clearCart();
+      navigate("/order-success", { state: { order: response.data.order } });
+    } catch (err) {
+      setCheckoutError(
+        err.response?.data?.error || "No se pudo generar la orden.",
+      );
+    } finally {
+      setCheckingOut(false);
     }
   };
 
@@ -181,8 +207,15 @@ export default function Cart() {
                 <span>Subtotal</span>
                 <span className="font-bold">${subtotal.toFixed(2)}</span>
               </div>
-              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors">
-                Continuar compra
+              {checkoutError && (
+                <p className="mb-4 text-sm text-red-600">{checkoutError}</p>
+              )}
+              <button
+                onClick={handleCheckout}
+                disabled={checkingOut}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {checkingOut ? "Generando orden..." : "Continuar compra"}
               </button>
             </aside>
           </div>

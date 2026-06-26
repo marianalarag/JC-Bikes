@@ -326,7 +326,7 @@ app.delete(
 app.get("/api/setup-store", async (req, res) => {
   try {
     await pool.query(`
-      DROP TABLE IF EXISTS reviews, product_variants, product_images, products, categories CASCADE;
+      DROP TABLE IF EXISTS reviews, product_variants, order_items, orders, product_images, products, categories CASCADE;
 
       CREATE TABLE IF NOT EXISTS categories (
         id SERIAL PRIMARY KEY,
@@ -351,6 +351,24 @@ app.get("/api/setup-store", async (req, res) => {
         is_primary BOOLEAN DEFAULT FALSE,
         display_order INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS orders (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        total NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        status VARCHAR(30) NOT NULL DEFAULT 'created',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS order_items (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        product_name VARCHAR(255) NOT NULL,
+        unit_price NUMERIC(10, 2) NOT NULL,
+        quantity INTEGER NOT NULL CHECK (quantity > 0),
+        line_total NUMERIC(10, 2) NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS product_variants (
@@ -406,6 +424,168 @@ app.get("/api/setup-store", async (req, res) => {
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Error configurando la tienda: " + err.message);
+  }
+});
+
+// ==========================================
+// RUTAS DE ORDENES
+// ==========================================
+
+const ensureOrderTables = async (client) => {
+  await client.query(`
+    ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 0;
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      total NUMERIC(10, 2) NOT NULL DEFAULT 0,
+      status VARCHAR(30) NOT NULL DEFAULT 'created',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS order_items (
+      id SERIAL PRIMARY KEY,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+      product_name VARCHAR(255) NOT NULL,
+      unit_price NUMERIC(10, 2) NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      line_total NUMERIC(10, 2) NOT NULL
+    );
+  `);
+};
+
+app.post("/api/orders", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { items } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "La orden no tiene productos." });
+    }
+
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1];
+    let userId = null;
+
+    if (token) {
+      try {
+        const user = jwt.verify(
+          token,
+          process.env.JWT_SECRET || "super_secreto_desarrollo",
+        );
+        userId = user.id;
+      } catch {
+        userId = null;
+      }
+    }
+
+    await ensureOrderTables(client);
+    await client.query("BEGIN");
+
+    const normalizedItems = items.map((item) => ({
+      productId: Number(item.productId),
+      quantity: Number(item.quantity),
+    }));
+
+    if (
+      normalizedItems.some(
+        (item) =>
+          !Number.isInteger(item.productId) ||
+          !Number.isInteger(item.quantity) ||
+          item.quantity <= 0,
+      )
+    ) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Productos de orden invalidos." });
+    }
+
+    const orderItems = [];
+    let total = 0;
+
+    for (const item of normalizedItems) {
+      const productResult = await client.query(
+        "SELECT id, name, price, stock FROM products WHERE id = $1 FOR UPDATE",
+        [item.productId],
+      );
+
+      if (productResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Producto no encontrado." });
+      }
+
+      const product = productResult.rows[0];
+      const stock = Number(product.stock || 0);
+
+      if (stock < item.quantity) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: `Stock insuficiente para ${product.name}.`,
+          productId: product.id,
+          stock,
+        });
+      }
+
+      const unitPrice = Number(product.price);
+      const lineTotal = unitPrice * item.quantity;
+      total += lineTotal;
+
+      await client.query(
+        "UPDATE products SET stock = stock - $1 WHERE id = $2",
+        [item.quantity, product.id],
+      );
+
+      orderItems.push({
+        productId: product.id,
+        productName: product.name,
+        unitPrice,
+        quantity: item.quantity,
+        lineTotal,
+      });
+    }
+
+    const orderResult = await client.query(
+      "INSERT INTO orders (user_id, total, status) VALUES ($1, $2, $3) RETURNING id, user_id, total, status, created_at",
+      [userId, total, "created"],
+    );
+    const order = orderResult.rows[0];
+
+    for (const item of orderItems) {
+      await client.query(
+        `INSERT INTO order_items
+          (order_id, product_id, product_name, unit_price, quantity, line_total)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          order.id,
+          item.productId,
+          item.productName,
+          item.unitPrice,
+          item.quantity,
+          item.lineTotal,
+        ],
+      );
+    }
+
+    await client.query("COMMIT");
+
+    res.status(201).json({
+      order: {
+        id: order.id,
+        userId: order.user_id,
+        total: Number(order.total),
+        status: order.status,
+        createdAt: order.created_at,
+        items: orderItems,
+      },
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error en POST /api/orders:", err.message);
+    res.status(500).json({ error: "Error al generar la orden." });
+  } finally {
+    client.release();
   }
 });
 
