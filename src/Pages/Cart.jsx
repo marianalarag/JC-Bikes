@@ -89,7 +89,12 @@ export default function Cart() {
       });
 
       clearCart();
-      navigate("/order-success", { state: { order: response.data.order } });
+      navigate("/order-success", {
+        state: {
+          order: response.data.order,
+          email: response.data.email,
+        },
+      });
     } catch (err) {
       setCheckoutError(
         err.response?.data?.error || "No se pudo generar la orden.",

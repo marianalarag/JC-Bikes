@@ -1,9 +1,19 @@
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import BrandLogo from "../Components/BrandLogo";
 
 export default function OrderSuccess() {
   const { state } = useLocation();
   const order = state?.order;
+  const email = state?.email;
+  const [showToast, setShowToast] = useState(Boolean(state?.order));
+
+  useEffect(() => {
+    if (!showToast) return undefined;
+
+    const timer = window.setTimeout(() => setShowToast(false), 6000);
+    return () => window.clearTimeout(timer);
+  }, [showToast]);
 
   if (!order) {
     return (
@@ -36,6 +46,41 @@ export default function OrderSuccess() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {showToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed right-4 top-4 z-[60] flex max-w-sm items-start gap-3 rounded-xl border p-4 shadow-xl ${
+            email?.sent
+              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
+              : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          }`}
+        >
+          <span className="text-xl" aria-hidden="true">
+            {email?.sent ? "✓" : "!"}
+          </span>
+          <div className="flex-1">
+            <p className="font-bold">
+              {email?.sent
+                ? "Correo de confirmación enviado"
+                : "Orden confirmada"}
+            </p>
+            <p className="mt-1 text-sm">
+              {email?.sent
+                ? `Enviamos los detalles a ${email.recipient}.`
+                : "No pudimos enviar el correo, pero tu pedido quedó registrado."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowToast(false)}
+            className="text-lg leading-none opacity-70 hover:opacity-100"
+            aria-label="Cerrar notificación"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <nav className="bg-white dark:bg-gray-800 shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <BrandLogo />

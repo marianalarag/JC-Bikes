@@ -3,6 +3,7 @@ const cors = require("cors");
 const pool = require("./db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { sendOrderConfirmation } = require("./mailer");
 require("dotenv").config();
 
 const app = express();
@@ -614,17 +615,34 @@ app.post("/api/orders", discountInventoryOnPayment, async (req, res) => {
       );
     }
 
+    let customer = null;
+    if (userId) {
+      const customerResult = await client.query(
+        "SELECT name, email FROM users WHERE id = $1",
+        [userId],
+      );
+      customer = customerResult.rows[0] || null;
+    }
+
     await client.query("COMMIT");
 
+    const responseOrder = {
+      id: order.id,
+      userId: order.user_id,
+      total: Number(order.total),
+      status: order.status,
+      createdAt: order.created_at,
+      items: orderItems,
+    };
+    const email = await sendOrderConfirmation({
+      recipient: customer?.email,
+      customerName: customer?.name,
+      order: responseOrder,
+    });
+
     res.status(201).json({
-      order: {
-        id: order.id,
-        userId: order.user_id,
-        total: Number(order.total),
-        status: order.status,
-        createdAt: order.created_at,
-        items: orderItems,
-      },
+      order: responseOrder,
+      email,
     });
   } catch (err) {
     await client.query("ROLLBACK");
