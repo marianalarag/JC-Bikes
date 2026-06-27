@@ -15,6 +15,7 @@
     "jsonwebtoken": "^9.0.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-helmet": "^6.1.0",
     "react-router-dom": "^7.1.1",
     "tailwindcss": "^3.4.17"
   },

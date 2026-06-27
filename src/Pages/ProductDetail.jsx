@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet";
 import api from "../utils/api";
 import ProductImageGallery from "../Components/ProductImageGallery";
 import { useCart } from "../context/useCart";
 
 export default function ProductDetail() {
-  const { id } = useParams();
+  const { slug } = useParams();
+  const navigate = useNavigate();
   const { addToCart } = useCart();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,10 +19,25 @@ export default function ProductDetail() {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const res = await api.get(`/products/${id}`);
+        let res;
+
+        try {
+          res = await api.get(
+            `/products/by-slug/${encodeURIComponent(slug)}`,
+          );
+        } catch (slugError) {
+          if (!/^\d+$/.test(slug)) throw slugError;
+          res = await api.get(`/products/${slug}`);
+        }
+
         setProduct(res.data);
+        if (res.data.slug && res.data.slug !== slug) {
+          navigate(`/product/${res.data.slug}`, { replace: true });
+        }
       } catch (err) {
-        setError("Error al cargar el producto");
+        setError(
+          err.response?.data?.error || "Error al cargar el producto",
+        );
         console.error(err);
       } finally {
         setLoading(false);
@@ -28,7 +45,7 @@ export default function ProductDetail() {
     };
 
     fetchProduct();
-  }, [id]);
+  }, [navigate, slug]);
 
   const handleAddToCart = async () => {
     setAdding(true);
@@ -69,9 +86,51 @@ export default function ProductDetail() {
     { length: Math.min(stock, 10) },
     (_, index) => index + 1,
   );
+  const siteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || window.location.origin;
+  const canonicalUrl = `${siteUrl}/product/${product.slug || slug}`;
+  const description =
+    product.description ||
+    `Compra ${product.name} en JC Bikes. Productos y accesorios para ciclistas.`;
+  const imageUrl = product.image_url || `${siteUrl}/favicon.svg`;
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    description,
+    image: imageUrl,
+    sku: String(product.id),
+    category: product.category_name,
+    offers: {
+      "@type": "Offer",
+      url: canonicalUrl,
+      priceCurrency: "MXN",
+      price: Number(product.price).toFixed(2),
+      availability:
+        stock > 0
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+    },
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
+      <Helmet>
+        <title>{`${product.name} | JC Bikes`}</title>
+        <meta name="description" content={description} />
+        <link rel="canonical" href={canonicalUrl} />
+        <meta property="og:type" content="product" />
+        <meta property="og:title" content={`${product.name} | JC Bikes`} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={canonicalUrl} />
+        <meta property="og:image" content={imageUrl} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={`${product.name} | JC Bikes`} />
+        <meta name="twitter:description" content={description} />
+        <meta name="twitter:image" content={imageUrl} />
+        <script type="application/ld+json">
+          {JSON.stringify(structuredData)}
+        </script>
+      </Helmet>
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center mb-4">
           <Link to="/shop" className="text-blue-600 hover:underline">

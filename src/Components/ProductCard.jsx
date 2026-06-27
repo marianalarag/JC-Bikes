@@ -53,7 +53,7 @@ export default function ProductCard({ product }) {
   }, [product.id]);
 
   const handleClick = () => {
-    navigate(`/product/${product.id}`);
+    navigate(`/product/${product.slug || product.id}`);
   };
 
   const handleAddToCart = async (e) => {

@@ -13,6 +13,69 @@ const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 
+const slugify = (value) =>
+  String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "producto";
+
+const createUniqueProductSlug = async (name, excludeId = null) => {
+  const baseSlug = slugify(name);
+  let candidate = baseSlug;
+  let suffix = 2;
+
+  while (true) {
+    const result = await pool.query(
+      `SELECT 1
+       FROM products
+       WHERE slug = $1 AND ($2::integer IS NULL OR id <> $2)
+       LIMIT 1`,
+      [candidate, excludeId],
+    );
+
+    if (result.rows.length === 0) return candidate;
+    candidate = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+};
+
+const ensureProductSlugs = async () => {
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS slug VARCHAR(280)");
+
+  const result = await pool.query(
+    "SELECT id, name, slug FROM products ORDER BY id ASC",
+  );
+  const usedSlugs = new Set();
+
+  for (const product of result.rows) {
+    const baseSlug = slugify(product.slug || product.name);
+    let slug = baseSlug;
+    let suffix = 2;
+
+    while (usedSlugs.has(slug)) {
+      slug = `${baseSlug}-${suffix}`;
+      suffix += 1;
+    }
+
+    usedSlugs.add(slug);
+    if (product.slug !== slug) {
+      await pool.query("UPDATE products SET slug = $1 WHERE id = $2", [
+        slug,
+        product.id,
+      ]);
+    }
+  }
+
+  await pool.query(`
+    ALTER TABLE products ALTER COLUMN slug SET NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS products_slug_unique_idx
+      ON products (slug);
+  `);
+};
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -338,6 +401,7 @@ app.get("/api/setup-store", async (req, res) => {
         id SERIAL PRIMARY KEY,
         category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
         name VARCHAR(255) UNIQUE NOT NULL,
+        slug VARCHAR(280) UNIQUE NOT NULL,
         description TEXT,
         price NUMERIC(10, 2) NOT NULL,
         stock INTEGER DEFAULT 0 CHECK (stock >= 0),
@@ -401,10 +465,10 @@ app.get("/api/setup-store", async (req, res) => {
     `);
 
     await pool.query(`
-      INSERT INTO products (category_id, name, description, price, stock, image_url) VALUES
-      ((SELECT id FROM categories WHERE name = 'Bicicletas' LIMIT 1), 'Bicicleta de Montana Pro', 'Chasis de aluminio ligero, frenos de disco hidraulicos y suspension avanzada.', 599.99, 10, 'https://images.unsplash.com/photo-1532298229144-0ec0c57515c7?w=600&q=80'),
-      ((SELECT id FROM categories WHERE name = 'Accesorios' LIMIT 1), 'Casco Aerodinamico', 'Maxima proteccion y velocidad con diseno ergonomico y ventilado.', 89.50, 10, 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&q=80'),
-      ((SELECT id FROM categories WHERE name = 'Repuestos' LIMIT 1), 'Cadena Shimano 11v', 'Alta durabilidad y rendimiento para las subidas mas exigentes.', 25.00, 20, 'https://images.unsplash.com/photo-1558235282-50dce421d014?w=600&q=80')
+      INSERT INTO products (category_id, name, slug, description, price, stock, image_url) VALUES
+      ((SELECT id FROM categories WHERE name = 'Bicicletas' LIMIT 1), 'Bicicleta de Montana Pro', 'bicicleta-de-montana-pro', 'Chasis de aluminio ligero, frenos de disco hidraulicos y suspension avanzada.', 599.99, 10, 'https://images.unsplash.com/photo-1532298229144-0ec0c57515c7?w=600&q=80'),
+      ((SELECT id FROM categories WHERE name = 'Accesorios' LIMIT 1), 'Casco Aerodinamico', 'casco-aerodinamico', 'Maxima proteccion y velocidad con diseno ergonomico y ventilado.', 89.50, 10, 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&q=80'),
+      ((SELECT id FROM categories WHERE name = 'Repuestos' LIMIT 1), 'Cadena Shimano 11v', 'cadena-shimano-11v', 'Alta durabilidad y rendimiento para las subidas mas exigentes.', 25.00, 20, 'https://images.unsplash.com/photo-1558235282-50dce421d014?w=600&q=80')
       ON CONFLICT (name) DO NOTHING;
     `);
 
@@ -826,7 +890,7 @@ app.get("/api/products", async (req, res) => {
 app.get("/api/products/simple", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT p.id, p.name, p.description, p.price, p.stock, p.category_id, c.name as category_name
+      SELECT p.id, p.name, p.slug, p.description, p.price, p.stock, p.category_id, c.name as category_name
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       ORDER BY p.id ASC
@@ -847,9 +911,12 @@ app.post("/api/products/new", authenticateToken, isAdmin, async (req, res) => {
       return res.status(400).json({ error: "Nombre y precio son requeridos" });
     }
 
+    const slug = await createUniqueProductSlug(name);
     const result = await pool.query(
-      `INSERT INTO products (name, description, price, stock) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [name, description || null, price, stock || 0],
+      `INSERT INTO products (name, slug, description, price, stock)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [name, slug, description || null, price, stock || 0],
     );
 
     res.status(201).json(result.rows[0]);
@@ -857,6 +924,119 @@ app.post("/api/products/new", authenticateToken, isAdmin, async (req, res) => {
     console.error("Error en POST /api/products/new:", err.message);
     res.status(500).json({ error: "Error al crear producto" });
   }
+});
+
+const getProductBySlug = async (slug) =>
+  pool.query(
+    `SELECT
+       p.id, p.name, p.slug, p.description, p.price, p.stock, p.created_at,
+       c.name AS category_name,
+       (
+         SELECT CASE
+           WHEN pi.image_url LIKE 'http%' THEN pi.image_url
+           ELSE CONCAT($2::text, pi.image_url)
+         END
+         FROM product_images pi
+         WHERE pi.product_id = p.id
+         ORDER BY pi.is_primary DESC, pi.display_order ASC, pi.id ASC
+         LIMIT 1
+       ) AS image_url
+     FROM products p
+     LEFT JOIN categories c ON c.id = p.category_id
+     WHERE p.slug = $1 OR p.id::text = $1
+     LIMIT 1`,
+    [slug, process.env.PUBLIC_API_URL || "http://localhost:5000"],
+  );
+
+app.get("/api/products/by-slug/:slug", async (req, res) => {
+  try {
+    const result = await getProductBySlug(req.params.slug);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en GET /api/products/by-slug/:slug:", err.message);
+    res.status(500).json({ error: "Error al obtener el producto" });
+  }
+});
+
+app.get("/api/seo/products/:slug", async (req, res) => {
+  try {
+    const result = await getProductBySlug(req.params.slug);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+
+    const product = result.rows[0];
+    const siteUrl = process.env.PUBLIC_SITE_URL || "http://localhost:5173";
+    const description =
+      product.description ||
+      `Compra ${product.name} en JC Bikes. Productos y accesorios para ciclistas.`;
+
+    res.json({
+      title: `${product.name} | JC Bikes`,
+      description,
+      canonical: `${siteUrl}/product/${product.slug}`,
+      image: product.image_url || `${siteUrl}/favicon.svg`,
+      type: "product",
+      product: {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        price: Number(product.price),
+        currency: "MXN",
+        availability: Number(product.stock) > 0 ? "in_stock" : "out_of_stock",
+      },
+    });
+  } catch (err) {
+    console.error("Error en GET /api/seo/products/:slug:", err.message);
+    res.status(500).json({ error: "Error al obtener metadatos" });
+  }
+});
+
+const escapeXml = (value) =>
+  String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    const siteUrl = process.env.PUBLIC_SITE_URL || "http://localhost:5173";
+    const result = await pool.query(
+      "SELECT slug, created_at FROM products ORDER BY id ASC",
+    );
+    const urls = [
+      `<url><loc>${escapeXml(siteUrl)}/</loc></url>`,
+      `<url><loc>${escapeXml(siteUrl)}/shop</loc></url>`,
+      ...result.rows.map(
+        (product) =>
+          `<url><loc>${escapeXml(`${siteUrl}/product/${product.slug}`)}</loc><lastmod>${new Date(product.created_at).toISOString()}</lastmod></url>`,
+      ),
+    ].join("");
+
+    res
+      .type("application/xml")
+      .send(
+        `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`,
+      );
+  } catch (err) {
+    console.error("Error en GET /sitemap.xml:", err.message);
+    res.status(500).send("Error al generar el sitemap");
+  }
+});
+
+app.get("/robots.txt", (req, res) => {
+  const apiUrl = process.env.PUBLIC_API_URL || "http://localhost:5000";
+  res
+    .type("text/plain")
+    .send(`User-agent: *\nAllow: /\nSitemap: ${apiUrl}/sitemap.xml\n`);
 });
 
 // 3. Ruta ligera para verificar stock disponible al vuelo
@@ -896,7 +1076,7 @@ app.get("/api/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      "SELECT id, name, description, price, stock, created_at FROM products WHERE id = $1",
+      "SELECT id, name, slug, description, price, stock, created_at FROM products WHERE id = $1",
       [id],
     );
 
@@ -1051,6 +1231,14 @@ app.delete(
 );
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Servidor Express corriendo en el puerto ${PORT}`);
-});
+
+ensureProductSlugs()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Servidor Express corriendo en el puerto ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("No se pudieron preparar los slugs de productos:", error);
+    process.exit(1);
+  });
