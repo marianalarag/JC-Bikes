@@ -357,8 +357,10 @@ app.get("/api/setup-store", async (req, res) => {
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
         total NUMERIC(10, 2) NOT NULL DEFAULT 0,
-        status VARCHAR(30) NOT NULL DEFAULT 'created',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        status VARCHAR(30) NOT NULL DEFAULT 'created'
+          CHECK (status IN ('created', 'procesando', 'enviado')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS order_items (
@@ -456,8 +458,12 @@ const ensureOrderTables = async (client) => {
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       total NUMERIC(10, 2) NOT NULL DEFAULT 0,
       status VARCHAR(30) NOT NULL DEFAULT 'created',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+
+    ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
     CREATE TABLE IF NOT EXISTS order_items (
       id SERIAL PRIMARY KEY,
@@ -628,6 +634,127 @@ app.post("/api/orders", discountInventoryOnPayment, async (req, res) => {
     client.release();
   }
 });
+
+app.get(
+  "/api/admin/orders",
+  authenticateToken,
+  isAdmin,
+  async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+      await ensureOrderTables(client);
+      const result = await client.query(`
+        SELECT
+          o.id,
+          o.total,
+          o.status,
+          o.created_at,
+          o.updated_at,
+          u.id AS user_id,
+          u.name AS customer_name,
+          u.email AS customer_email,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', oi.id,
+                'productId', oi.product_id,
+                'productName', oi.product_name,
+                'unitPrice', oi.unit_price,
+                'quantity', oi.quantity,
+                'lineTotal', oi.line_total
+              ) ORDER BY oi.id
+            ) FILTER (WHERE oi.id IS NOT NULL),
+            '[]'::json
+          ) AS items
+        FROM orders o
+        LEFT JOIN users u ON u.id = o.user_id
+        LEFT JOIN order_items oi ON oi.order_id = o.id
+        GROUP BY o.id, u.id, u.name, u.email
+        ORDER BY o.created_at DESC, o.id DESC
+      `);
+
+      res.json(
+        result.rows.map((order) => ({
+          id: order.id,
+          total: Number(order.total),
+          status: order.status,
+          createdAt: order.created_at,
+          updatedAt: order.updated_at,
+          customer: order.user_id
+            ? {
+                id: order.user_id,
+                name: order.customer_name,
+                email: order.customer_email,
+              }
+            : null,
+          items: order.items.map((item) => ({
+            ...item,
+            unitPrice: Number(item.unitPrice),
+            lineTotal: Number(item.lineTotal),
+          })),
+        })),
+      );
+    } catch (err) {
+      console.error("Error en GET /api/admin/orders:", err.message);
+      res.status(500).json({ error: "Error al obtener los pedidos." });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+app.patch(
+  "/api/admin/orders/:id/status",
+  authenticateToken,
+  isAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    const allowedStatuses = ["procesando", "enviado"];
+
+    if (!/^\d+$/.test(id)) {
+      return res.status(400).json({ error: "El id del pedido es inválido." });
+    }
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        error: "Estado inválido. Usa 'procesando' o 'enviado'.",
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await ensureOrderTables(client);
+      const result = await client.query(
+        `UPDATE orders
+         SET status = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, total, status, created_at, updated_at`,
+        [status, id],
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Pedido no encontrado." });
+      }
+
+      const order = result.rows[0];
+      res.json({
+        id: order.id,
+        total: Number(order.total),
+        status: order.status,
+        createdAt: order.created_at,
+        updatedAt: order.updated_at,
+      });
+    } catch (err) {
+      console.error("Error en PATCH /api/admin/orders/:id/status:", err.message);
+      res.status(500).json({ error: "Error al actualizar el pedido." });
+    } finally {
+      client.release();
+    }
+  },
+);
 
 // ==========================================
 // RUTAS DE PRODUCTOS (ORDEN CORRECTO)

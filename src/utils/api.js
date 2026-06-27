@@ -15,4 +15,30 @@ api.interceptors.request.use((config) => {
     return Promise.reject(error);
 });
 
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        const status = error.response?.status;
+        const message = error.response?.data?.error || '';
+        const expiredSession =
+            status === 401 ||
+            (status === 403 && message.toLowerCase().includes('token'));
+
+        if (expiredSession) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            sessionStorage.setItem(
+                'sessionMessage',
+                'Tu sesión expiró. Inicia sesión nuevamente.'
+            );
+
+            if (window.location.pathname !== '/login') {
+                window.location.assign('/login');
+            }
+        }
+
+        return Promise.reject(error);
+    }
+);
+
 export default api;

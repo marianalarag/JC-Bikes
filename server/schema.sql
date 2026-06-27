@@ -29,8 +29,10 @@ CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id) ON DELETE SET NULL,
     total NUMERIC(10, 2) NOT NULL DEFAULT 0,
-    status VARCHAR(30) NOT NULL DEFAULT 'created',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    status VARCHAR(30) NOT NULL DEFAULT 'created'
+        CHECK (status IN ('created', 'procesando', 'enviado')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS order_items (

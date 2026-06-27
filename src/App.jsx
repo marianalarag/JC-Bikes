@@ -9,6 +9,7 @@ import ProductDetail from "./Pages/ProductDetail";
 import AdminProducts from "./Pages/AdminProducts";
 import Cart from "./Pages/Cart";
 import OrderSuccess from "./Pages/OrderSuccess";
+import AdminOrders from "./Pages/AdminOrders";
 
 export default function App() {
   return (
@@ -33,6 +34,14 @@ export default function App() {
         element={
           <ProtectedRoute allowedRole="admin">
             <AdminProducts />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/orders"
+        element={
+          <ProtectedRoute allowedRole="admin">
+            <AdminOrders />
           </ProtectedRoute>
         }
       />

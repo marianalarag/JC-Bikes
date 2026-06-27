@@ -5,7 +5,11 @@ import BrandLogo from '../Components/BrandLogo';
 export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
+    const [error, setError] = useState(() => {
+        const message = sessionStorage.getItem('sessionMessage') || '';
+        sessionStorage.removeItem('sessionMessage');
+        return message;
+    });
     const navigate = useNavigate();
 
     const handleLogin = async (e) => {
@@ -31,6 +35,7 @@ export default function Login() {
             // Guardar el token en el almacenamiento local para mantener la sesión
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify({ name: data.name, role: data.role }));
+            sessionStorage.removeItem('sessionMessage');
 
             // Redireccionar basado en el rol (Cuenta Maestra vs Cliente Normal)
             if (data.role === 'admin') {

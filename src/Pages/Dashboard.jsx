@@ -360,6 +360,21 @@ export default function Dashboard() {
             >
               Gestionar Productos
             </Link>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 my-6" />
+
+            <h2 className="text-xl font-bold text-blue-900 dark:text-white mb-4">
+              Pedidos entrantes
+            </h2>
+            <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed mb-4">
+              Consulta las compras y actualiza su avance hasta el envío.
+            </p>
+            <Link
+              to="/admin/orders"
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-lg font-semibold transition-colors text-center"
+            >
+              Gestionar Pedidos
+            </Link>
           </div>
         </div>
       </div>

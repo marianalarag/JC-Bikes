@@ -22,11 +22,13 @@ export default function AdminProducts() {
 
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await api.get("/products/paginated?page=1&limit=100");
-      setProducts(res.data.products);
+      const res = await api.get("/products/simple");
+      setProducts(res.data);
     } catch (err) {
       console.error("Error:", err);
-      setError("Error al cargar productos");
+      setError(
+        err.response?.data?.error || "Error al cargar productos",
+      );
     } finally {
       setLoading(false);
     }
@@ -35,11 +37,13 @@ export default function AdminProducts() {
   useEffect(() => {
     const loadProducts = async () => {
       try {
-        const res = await api.get("/products/paginated?page=1&limit=100");
-        setProducts(res.data.products);
+        const res = await api.get("/products/simple");
+        setProducts(res.data);
       } catch (err) {
         console.error("Error:", err);
-        setError("Error al cargar productos");
+        setError(
+          err.response?.data?.error || "Error al cargar productos",
+        );
       } finally {
         setLoading(false);
       }
