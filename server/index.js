@@ -887,6 +887,35 @@ app.get("/api/products", async (req, res) => {
 });
 
 // 1. Ruta específica para productos simples (DEBE IR PRIMERO)
+// Ruta para obtener productos con paginación
+app.get("/api/products/paginated", async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.max(parseInt(req.query.limit, 10) || 12, 1);
+    const offset = (page - 1) * limit;
+
+    const countResult = await pool.query("SELECT COUNT(*) AS total FROM products");
+    const total = Number(countResult.rows[0].total);
+    const result = await pool.query(
+      `SELECT id, name, description, price, stock, created_at
+       FROM products
+       ORDER BY id ASC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    );
+
+    res.json({
+      products: result.rows,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    console.error("Error en GET /api/products/paginated:", err.message);
+    res.status(500).json({ error: "Error al obtener productos" });
+  }
+});
+
 app.get("/api/products/simple", async (req, res) => {
   try {
     const result = await pool.query(`

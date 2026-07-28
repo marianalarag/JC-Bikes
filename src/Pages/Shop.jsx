@@ -6,6 +6,11 @@ import { useCart } from "../context/useCart";
 import BrandLogo from "../Components/BrandLogo";
 
 export default function Shop() {
+    const [products, setProducts] = useState([]);
+    const [categories, setCategories] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('');
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
