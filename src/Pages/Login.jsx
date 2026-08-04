@@ -35,7 +35,7 @@ export default function Login() {
 
             // Guardar el token en el almacenamiento local para mantener la sesión
             localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify({ name: data.name, role: data.role }));
+            localStorage.setItem('user', JSON.stringify({ id: data.id, name: data.name, role: data.role }));
             sessionStorage.removeItem('sessionMessage');
 
             // Redireccionar basado en el rol (Cuenta Maestra vs Cliente Normal)

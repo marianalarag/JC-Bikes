@@ -229,6 +229,7 @@ app.post("/api/login", async (req, res) => {
 
     res.json({
       message: "Login exitoso",
+      id: user.id,
       token,
       role: user.role,
       name: user.name,
@@ -316,6 +317,7 @@ app.post("/api/register", async (req, res) => {
 
     res.status(201).json({
       message: "Registro exitoso",
+      id: newUser.rows[0].id,
       token,
       role: newUser.rows[0].role,
       name: newUser.rows[0].name,
@@ -988,7 +990,9 @@ app.get("/api/products/paginated", async (req, res) => {
 app.get("/api/products/simple", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT p.id, p.name, p.slug, p.description, p.price, p.stock, p.category_id, c.name as category_name
+      SELECT p.id, p.name, p.slug, p.description, p.price, p.stock, p.category_id, c.name as category_name,
+        (SELECT COALESCE(AVG(rating), 0) FROM reviews WHERE product_id = p.id) AS average_rating,
+        (SELECT COUNT(*)::integer FROM reviews WHERE product_id = p.id) AS review_count
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       ORDER BY p.id ASC
@@ -1087,6 +1091,94 @@ app.delete("/api/products/:id", authenticateToken, isAdmin, async (req, res) => 
   } catch (err) {
     console.error("Error en DELETE /api/products/:id:", err.message);
     res.status(500).json({ error: "Error al eliminar el producto" });
+  }
+});
+
+app.get("/api/products/:id/reviews", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT r.id, r.product_id, r.user_id, r.rating, r.comment, r.created_at,
+              COALESCE(u.name, 'Cliente') AS user_name
+       FROM reviews r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.product_id = $1
+       ORDER BY r.created_at DESC, r.id DESC`,
+      [req.params.id],
+    );
+    const summary = await pool.query(
+      `SELECT COALESCE(AVG(rating), 0) AS average, COUNT(*)::integer AS count
+       FROM reviews WHERE product_id = $1`,
+      [req.params.id],
+    );
+
+    res.json({ reviews: result.rows, summary: summary.rows[0] });
+  } catch (err) {
+    console.error("Error en GET /api/products/:id/reviews:", err.message);
+    res.status(500).json({ error: "Error al obtener las reseñas" });
+  }
+});
+
+app.post("/api/products/:id/reviews", authenticateToken, async (req, res) => {
+  try {
+    const productId = Number(req.params.id);
+    const rating = Number(req.body.rating);
+    const comment = String(req.body.comment || "").trim();
+
+    if (!Number.isInteger(productId) || productId < 1) {
+      return res.status(400).json({ error: "Producto inválido" });
+    }
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: "La calificación debe estar entre 1 y 5" });
+    }
+    if (comment.length < 3 || comment.length > 1000) {
+      return res.status(400).json({ error: "El comentario debe tener entre 3 y 1000 caracteres" });
+    }
+
+    const product = await pool.query("SELECT id FROM products WHERE id = $1", [productId]);
+    if (product.rows.length === 0) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO reviews (product_id, user_id, rating, comment)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (product_id, user_id)
+       DO UPDATE SET rating = EXCLUDED.rating,
+                     comment = EXCLUDED.comment,
+                     created_at = CURRENT_TIMESTAMP
+       RETURNING id, product_id, rating, comment, created_at`,
+      [productId, req.user.id, rating, comment],
+    );
+
+    res.status(201).json({
+      message: "Reseña guardada correctamente",
+      review: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Error en POST /api/products/:id/reviews:", err.message);
+    res.status(500).json({ error: "Error al guardar la reseña" });
+  }
+});
+
+app.delete("/api/products/reviews/:reviewId", authenticateToken, async (req, res) => {
+  try {
+    const review = await pool.query(
+      "SELECT id, user_id FROM reviews WHERE id = $1",
+      [req.params.reviewId],
+    );
+    if (review.rows.length === 0) {
+      return res.status(404).json({ error: "Reseña no encontrada" });
+    }
+    const ownsReview = Number(review.rows[0].user_id) === Number(req.user.id);
+    if (!ownsReview && req.user.role !== "admin") {
+      return res.status(403).json({ error: "No puedes eliminar esta reseña" });
+    }
+
+    await pool.query("DELETE FROM reviews WHERE id = $1", [req.params.reviewId]);
+    res.json({ message: "Reseña eliminada" });
+  } catch (err) {
+    console.error("Error en DELETE /api/products/reviews/:reviewId:", err.message);
+    res.status(500).json({ error: "Error al eliminar la reseña" });
   }
 });
 

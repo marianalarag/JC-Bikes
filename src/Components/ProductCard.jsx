@@ -96,6 +96,14 @@ export default function ProductCard({ product }) {
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 flex-1 line-clamp-2">
           {product.description || "Sin descripcion"}
         </p>
+        <div className="mt-2 flex items-center gap-2 text-sm">
+          <span className="text-amber-400" aria-hidden="true">★</span>
+          <span className="text-gray-600 dark:text-gray-300">
+            {Number(product.review_count || 0) > 0
+              ? `${Number(product.average_rating || 0).toFixed(1)} (${product.review_count})`
+              : "Sin reseñas"}
+          </span>
+        </div>
         <div className="mt-4 flex items-center justify-between">
           <span className="text-2xl font-bold text-green-600 dark:text-green-400">
             ${parseFloat(product.price).toFixed(2)}

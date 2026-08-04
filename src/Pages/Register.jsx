@@ -96,7 +96,7 @@ export default function Register() {
       localStorage.setItem("token", data.token);
       localStorage.setItem(
         "user",
-        JSON.stringify({ name: data.name, role: data.role }),
+        JSON.stringify({ id: data.id, name: data.name, role: data.role }),
       );
 
       alert(`¡Cuenta creada con éxito! Bienvenido ${data.name}.`);

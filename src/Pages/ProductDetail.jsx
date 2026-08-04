@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet";
 import api from "../utils/api";
 import ProductImageGallery from "../Components/ProductImageGallery";
+import ProductReviews from "../Components/ProductReviews";
 import { useCart } from "../context/useCart";
 
 export default function ProductDetail() {
@@ -209,6 +210,7 @@ export default function ProductDetail() {
             )}
           </div>
         </div>
+        <ProductReviews productId={product.id} />
       </div>
     </div>
   );
