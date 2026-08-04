@@ -124,10 +124,12 @@ const ensureProductSlugs = async () => {
 };
 
 let databaseError = null;
-const databaseReady = ensureProductSlugs().catch((error) => {
-  databaseError = error;
-  console.error("No se pudo conectar con la base de datos:", error.message);
-});
+const databaseReady = process.env.VERCEL
+  ? Promise.resolve()
+  : ensureProductSlugs().catch((error) => {
+      databaseError = error;
+      console.error("No se pudo conectar con la base de datos:", error.message);
+    });
 
 // Middleware
 app.use(cors());
