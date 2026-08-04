@@ -11,7 +11,7 @@ const app = express();
 
 const multer = require("multer");
 const path = require("path");
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("crypto");
 const fs = require("fs");
 
 const slugify = (value) =>
@@ -109,7 +109,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const uniqueName = `${uuidv4()}${ext}`;
+    const uniqueName = `${randomUUID()}${ext}`;
     cb(null, uniqueName);
   },
 });
