@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
+import { resolveApiUrl } from "../utils/api";
 import { useCart } from "../context/useCart";
 
 const PLACEHOLDER_IMAGES = {
@@ -37,9 +38,7 @@ export default function ProductCard({ product }) {
         const res = await api.get(`/products/${product.id}/images`);
         const primary = res.data.find((img) => img.is_primary);
         if (primary) {
-          const imageUrl = primary.image_url.startsWith("http")
-            ? primary.image_url
-            : `http://localhost:5000${primary.image_url}`;
+          const imageUrl = resolveApiUrl(primary.image_url);
           setPrimaryImage(imageUrl);
         }
       } catch (err) {

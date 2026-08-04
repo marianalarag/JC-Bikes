@@ -1,7 +1,19 @@
 import axios from 'axios';
 
+const configuredApiOrigin = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+export const API_BASE_URL = configuredApiOrigin ? `${configuredApiOrigin}/api` : '/api';
+
+export const resolveApiUrl = (resourceUrl = '') => {
+    if (!resourceUrl) return resourceUrl;
+    if (/^https?:\/\//i.test(resourceUrl)) return resourceUrl;
+    if (!configuredApiOrigin && resourceUrl.startsWith('/uploads')) {
+        return `/api${resourceUrl}`;
+    }
+    return `${configuredApiOrigin}${resourceUrl.startsWith('/') ? resourceUrl : `/${resourceUrl}`}`;
+};
+
 const api = axios.create({
-    baseURL: 'http://localhost:5000/api'
+    baseURL: API_BASE_URL
 });
 
 // Interceptor de peticiones para inyectar automáticamente el token JWT

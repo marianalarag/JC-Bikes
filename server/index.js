@@ -1,10 +1,11 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const pool = require("./db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { sendOrderConfirmation } = require("./mailer");
-require("dotenv").config();
 
 const app = express();
 
@@ -76,9 +77,22 @@ const ensureProductSlugs = async () => {
   `);
 };
 
+let databaseError = null;
+const databaseReady = ensureProductSlugs().catch((error) => {
+  databaseError = error;
+  console.error("No se pudo conectar con la base de datos:", error.message);
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(async (req, res, next) => {
+  await databaseReady;
+  if (databaseError) {
+    return res.status(503).json({ error: "Base de datos no disponible" });
+  }
+  next();
+});
 
 // ==========================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES
@@ -121,6 +135,7 @@ const upload = multer({
 });
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ==========================================
 // ENDPOINTS DE PRUEBA
@@ -974,7 +989,7 @@ const getProductBySlug = async (slug) =>
      LEFT JOIN categories c ON c.id = p.category_id
      WHERE p.slug = $1 OR p.id::text = $1
      LIMIT 1`,
-    [slug, process.env.PUBLIC_API_URL || "http://localhost:5000"],
+    [slug, process.env.PUBLIC_API_URL || ""],
   );
 
 app.get("/api/products/by-slug/:slug", async (req, res) => {
@@ -1062,7 +1077,7 @@ app.get("/sitemap.xml", async (req, res) => {
 });
 
 app.get("/robots.txt", (req, res) => {
-  const apiUrl = process.env.PUBLIC_API_URL || "http://localhost:5000";
+  const apiUrl = process.env.PUBLIC_API_URL || "";
   res
     .type("text/plain")
     .send(`User-agent: *\nAllow: /\nSitemap: ${apiUrl}/sitemap.xml\n`);
@@ -1261,13 +1276,16 @@ app.delete(
 
 const PORT = process.env.PORT || 5000;
 
-ensureProductSlugs()
-  .then(() => {
+if (require.main === module) {
+  databaseReady.then(() => {
+    if (databaseError) throw databaseError;
     app.listen(PORT, () => {
       console.log(`Servidor Express corriendo en el puerto ${PORT}`);
     });
-  })
-  .catch((error) => {
+  }).catch((error) => {
     console.error("No se pudieron preparar los slugs de productos:", error);
     process.exit(1);
   });
+}
+
+module.exports = app;

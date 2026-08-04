@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../utils/api";
+import { resolveApiUrl } from "../utils/api";
 import { useCart } from "../context/useCart";
 import BrandLogo from "../Components/BrandLogo";
 
@@ -34,11 +35,7 @@ function CartItemImage({ product }) {
         const primary = res.data.find((img) => img.is_primary) || res.data[0];
 
         if (primary) {
-          setImageUrl(
-            primary.image_url.startsWith("http")
-              ? primary.image_url
-              : `http://localhost:5000${primary.image_url}`,
-          );
+          setImageUrl(resolveApiUrl(primary.image_url));
         }
       } catch (err) {
         console.error("Error cargando imagen del carrito:", err);

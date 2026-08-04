@@ -1,5 +1,6 @@
 import { useCallback, useState, useEffect } from "react";
 import api from "../utils/api";
+import { API_BASE_URL, resolveApiUrl } from "../utils/api";
 
 export default function ProductImageGallery({ productId }) {
   const [images, setImages] = useState([]);
@@ -60,7 +61,7 @@ export default function ProductImageGallery({ productId }) {
       const token = localStorage.getItem("token");
 
       const response = await fetch(
-        `http://localhost:5000/api/products/${productId}/images`,
+        `${API_BASE_URL}/products/${productId}/images`,
         {
           method: "POST",
           headers: {
@@ -90,7 +91,7 @@ export default function ProductImageGallery({ productId }) {
       const token = localStorage.getItem("token");
 
       const response = await fetch(
-        `http://localhost:5000/api/products/images/${imageId}/primary`,
+        `${API_BASE_URL}/products/images/${imageId}/primary`,
         {
           method: "PUT",
           headers: {
@@ -120,7 +121,7 @@ export default function ProductImageGallery({ productId }) {
       const token = localStorage.getItem("token");
 
       const response = await fetch(
-        `http://localhost:5000/api/products/images/${imageId}`,
+        `${API_BASE_URL}/products/images/${imageId}`,
         {
           method: "DELETE",
           headers: {
@@ -149,8 +150,7 @@ export default function ProductImageGallery({ productId }) {
     if (imageUrl.startsWith("http")) {
       return imageUrl;
     }
-    // Si es local, agrega el puerto del backend
-    return `http://localhost:5000${imageUrl}`;
+    return resolveApiUrl(imageUrl);
   };
 
   if (loading) {
