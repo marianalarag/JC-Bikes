@@ -1022,6 +1022,72 @@ app.post("/api/products/new", authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
+app.put("/api/products/:id", authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, price, stock, category_id } = req.body;
+    const parsedPrice = Number(price);
+    const parsedStock = Number(stock);
+
+    if (!name?.trim() || !Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      return res.status(400).json({ error: "Nombre y precio válidos son requeridos" });
+    }
+
+    if (!Number.isInteger(parsedStock) || parsedStock < 0) {
+      return res.status(400).json({ error: "El stock debe ser un entero no negativo" });
+    }
+
+    const slug = await createUniqueProductSlug(name, id);
+    const result = await pool.query(
+      `UPDATE products
+       SET name = $1,
+           slug = $2,
+           description = $3,
+           price = $4,
+           stock = $5,
+           category_id = $6
+       WHERE id = $7
+       RETURNING *`,
+      [
+        name.trim(),
+        slug,
+        description?.trim() || null,
+        parsedPrice,
+        parsedStock,
+        category_id ? Number(category_id) : null,
+        id,
+      ],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error en PUT /api/products/:id:", err.message);
+    res.status(500).json({ error: "Error al actualizar el producto" });
+  }
+});
+
+app.delete("/api/products/:id", authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM products WHERE id = $1 RETURNING id",
+      [req.params.id],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+
+    res.json({ message: "Producto eliminado exitosamente" });
+  } catch (err) {
+    console.error("Error en DELETE /api/products/:id:", err.message);
+    res.status(500).json({ error: "Error al eliminar el producto" });
+  }
+});
+
 const getProductBySlug = async (slug) =>
   pool.query(
     `SELECT
