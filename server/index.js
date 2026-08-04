@@ -12,7 +12,53 @@ const app = express();
 const multer = require("multer");
 const path = require("path");
 const { randomUUID } = require("crypto");
-const fs = require("fs");
+
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "product-images";
+
+const getStorageHeaders = (contentType) => ({
+  apikey: SUPABASE_SERVICE_ROLE_KEY,
+  Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+  ...(contentType ? { "Content-Type": contentType } : {}),
+});
+
+const ensureStorageConfig = () => {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Supabase Storage no está configurado");
+  }
+};
+
+const storageObjectUrl = (objectName) =>
+  `${SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${encodeURIComponent(objectName)}`;
+
+const uploadStorageObject = async (file, objectName) => {
+  ensureStorageConfig();
+  const response = await fetch(storageObjectUrl(objectName), {
+    method: "POST",
+    headers: {
+      ...getStorageHeaders(file.mimetype),
+      "x-upsert": "false",
+    },
+    body: file.buffer,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase Storage respondió ${response.status}: ${await response.text()}`);
+  }
+};
+
+const deleteStorageObject = async (objectName) => {
+  ensureStorageConfig();
+  const response = await fetch(storageObjectUrl(objectName), {
+    method: "DELETE",
+    headers: getStorageHeaders(),
+  });
+
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Supabase Storage respondió ${response.status}: ${await response.text()}`);
+  }
+};
 
 const slugify = (value) =>
   String(value)
@@ -98,22 +144,6 @@ app.use(async (req, res, next) => {
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES
 // ==========================================
 
-const uploadDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const uniqueName = `${randomUUID()}${ext}`;
-    cb(null, uniqueName);
-  },
-});
-
 const fileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
   const extname = allowedTypes.test(
@@ -129,13 +159,35 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: fileFilter,
 });
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
+
+app.get("/api/storage/:bucket/:object", async (req, res) => {
+  try {
+    ensureStorageConfig();
+    const objectName = decodeURIComponent(req.params.object);
+    const response = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(req.params.bucket)}/${encodeURIComponent(objectName)}`,
+      { headers: getStorageHeaders() },
+    );
+
+    if (!response.ok) {
+      return res.status(response.status === 404 ? 404 : 502).send("Imagen no encontrada");
+    }
+
+    res.set("Content-Type", response.headers.get("content-type") || "application/octet-stream");
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.send(Buffer.from(await response.arrayBuffer()));
+  } catch (err) {
+    console.error("Error al servir imagen de Supabase Storage:", err.message);
+    res.status(500).send("Error al obtener la imagen");
+  }
+});
 
 // ==========================================
 // ENDPOINTS DE PRUEBA
@@ -1161,7 +1213,10 @@ app.post(
           .json({ error: "No se ha subido ninguna imagen" });
       }
 
-      const imageUrl = `/uploads/${req.file.filename}`;
+      const extension = path.extname(req.file.originalname).toLowerCase();
+      const objectName = `${id}-${randomUUID()}${extension}`;
+      await uploadStorageObject(req.file, objectName);
+      const imageUrl = `/api/storage/${STORAGE_BUCKET}/${encodeURIComponent(objectName)}`;
       const result = await pool.query(
         "INSERT INTO product_images (product_id, image_url, is_primary, display_order) VALUES ($1, $2, $3, $4) RETURNING *",
         [id, imageUrl, false, 0],
@@ -1258,11 +1313,9 @@ app.delete(
       }
 
       const imageUrl = image.rows[0].image_url;
-      const filename = path.basename(imageUrl);
-      const filePath = path.join(uploadDir, filename);
-
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      const storageMatch = imageUrl.match(/^\/api\/storage\/[^/]+\/(.+)$/);
+      if (storageMatch) {
+        await deleteStorageObject(decodeURIComponent(storageMatch[1]));
       }
 
       await pool.query("DELETE FROM product_images WHERE id = $1", [imageId]);
